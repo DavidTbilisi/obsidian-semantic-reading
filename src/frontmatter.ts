@@ -1,0 +1,38 @@
+import { App, TFile } from 'obsidian';
+import { Paragraph, flatExtracts } from './syntax';
+import { TAGS } from './constants';
+
+export interface SemanticTagEntry {
+  tag: string;
+  text: string;
+  para: number;
+  note?: string;
+}
+
+// Rebuild the `semantic_tags` frontmatter array from the parsed body.
+// Inline syntax is the source of truth; frontmatter is just a cache for fast queries.
+export async function rebuildFrontmatter(
+  app: App,
+  file: TFile,
+  paragraphs: Paragraph[],
+  mode: number
+): Promise<void> {
+  const extracts = flatExtracts(paragraphs).filter(e => TAGS[e.tag]);
+  const entries: SemanticTagEntry[] = extracts.map(e => {
+    const out: SemanticTagEntry = { tag: e.tag, text: e.text, para: e.paragraph };
+    if (e.note) out.note = e.note;
+    return out;
+  });
+  await app.fileManager.processFrontMatter(file, (fm) => {
+    if (entries.length) fm.semantic_tags = entries;
+    else delete fm.semantic_tags;
+    fm.semantic_mode = mode;
+  });
+}
+
+export function readModeFrom(fm: Record<string, unknown> | null | undefined, fallback: number): number {
+  if (!fm) return fallback;
+  const m = fm.semantic_mode;
+  if (typeof m === 'number' && m >= 1 && m <= 5) return m;
+  return fallback;
+}
