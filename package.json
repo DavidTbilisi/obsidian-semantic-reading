@@ -1,6 +1,6 @@
 {
   "name": "obsidian-semantic-reading",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Semantic Reading plugin for Obsidian",
   "main": "main.js",
   "scripts": {
@@ -8,7 +8,7 @@
     "build": "node esbuild.config.mjs production"
   },
   "keywords": [],
-  "author": "david",
+  "author": "David Chincharashvili",
   "license": "MIT",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.40.0"
