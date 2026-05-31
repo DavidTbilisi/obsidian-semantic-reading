@@ -41,3 +41,11 @@ export function readModeFrom(fm: Record<string, unknown> | null | undefined, fal
   if (typeof m === 'number' && m >= 1 && m <= 5) return m;
   return fallback;
 }
+
+export function readDomainFrom(fm: Record<string, unknown> | null | undefined): string | null {
+  if (!fm) return null;
+  const d = fm.semantic_domain;
+  if (typeof d !== 'string') return null;
+  const trimmed = d.trim();
+  return trimmed || null;
+}

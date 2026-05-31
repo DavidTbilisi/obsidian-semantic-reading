@@ -32,6 +32,8 @@ Select text in any note. A floating tagbar appears. Press a letter (`d`=Def, `r`
 
 **Modes** (1–5) control which tags are available — Easy surfaces obvious anchors, Structural makes local structure visible, Regenerative exposes the whole 19-tag palette. Per-note override via `semantic_mode: 5` in frontmatter.
 
+**Domain profiles** swap the active tag toolkit per note. Add `semantic_domain: programming` (or `bible`, `science`, `legal`, `meeting`) to a note's frontmatter and you get domain-specific sigils — `Fn`, `Algo`, `Bug`, `Perf` for code; `Vrs`, `Cmd`, `Prom`, `Cov`, `Prph` for scripture; `Hyp`, `Var`, `Exp`, `Res` for science; `Stt`, `Hold`, `Prec`, `Rule` for legal; `Dec`, `Own`, `Rsk`, `Blk` for meetings. Each profile decides whether to keep, prune, or replace the built-in 19. Edit or add your own under *Settings → Domains*.
+
 ### 2. KNOW — vault-wide knowledge graph
 
 - **Cards / Sheet / Gaps** side view — per-note inventory of tagged spans, grouped by semantic family.
@@ -78,18 +80,33 @@ Every plugin entry-point lives under one prefix in the command palette:
 - **Annotated markdown** — full note with tag extracts grouped by family.
 - **Anki CSV per framework** — one CSV per encoding framework (NEDF, CAST, SPEAR, HEART, ORACLE), Anki "Basic" note-type compatible.
 
+### Integrations
+
+- **Anki sync** (AnkiConnect) — push every `Def`/`Q` card into Anki desktop, tagged with a stable `srid_…` so re-syncs skip duplicates.
+- **Dataview starter pack** — drops a query template you can copy/paste to build dashboards over `semantic_tags:` frontmatter.
+- **Tasks MOC** — generates `Actions.md` with one `- [ ]` per `A`-tagged span across the vault. Plays well with the Tasks plugin.
+- **Daily note injection** — prepends `📚 N due · M open · K concepts` to today's `YYYY-MM-DD.md` when you open it.
+- **Relation graph from R-tags** — parses arrow keywords (`causes`, `supports`, `depends on`, `blocks`, `requires`, …) in `R`-tagged spans and either inserts a fenced ```mermaid block into the note (idempotent — re-runs replace the existing block) or writes a sibling `*.relations.canvas` for Obsidian Canvas.
+- **Calendar (.ics) export** — every `A`-tagged span paired with a co-located `D`-tagged date in the same paragraph becomes one VEVENT in `actions.ics`. Subscribe from Calendar.app / Fantastical; UID per event is stable so re-exports update events in place.
+- **Tasks app push** — push `A`-tagged spans to Todoist (REST v2, deduped by `srid_…` label) or Things 3 (`things:///add` x-callback-url, deduped locally). Domain-aware: `semantic_domain → project_id` mapping routes each action to the right project/list.
+- **Readwise / Kindle import** — pulls highlights into the vault as one note per book in a destination folder of your choice. Frontmatter is pre-filled with `source`, `author`, `source_url`, and a blank `semantic_domain:` ready for you to set. Kindle path parses `My Clippings.txt` from a file picker — no API needed.
+- **MCP server** — exposes the vault tag index, concept hub pages, due-cards queue, domain profiles, and the AI suggest tool over JSON-RPC. Localhost-only; off by default. Compatible with Claude Desktop, Cursor, VS Code, and any MCP client.
+
+Every integration has its own settings section and command-palette entry. Tokens for external services (Readwise, Todoist) are stored in plugin `data.json` and never written to vault notes.
+
 ---
 
 ## Privacy and network use
 
-The plugin works fully offline **except** for the AI features (suggest, check, synthesize), which are off by default. When enabled:
+The plugin works fully offline **except** for the optional features below, all off by default. Each is an explicit, user-triggered command — there is no background traffic, no telemetry, no third-party analytics.
 
-- All AI calls go to **api.anthropic.com** using your Anthropic API key.
-- Your API key is stored in this plugin's `data.json` (inside the vault's `.obsidian/plugins/` folder). It is **not** written to any vault note.
-- Each call sends: the tag schema (cached system prompt), the active paragraph (for suggest) or the slice you previewed (for synthesize). Note contents outside that slice are never sent.
-- No telemetry. No third-party analytics. No background traffic.
+- **AI features** (suggest, check, synthesize) — calls go to **api.anthropic.com** using your Anthropic API key. Each call sends the tag schema (cached system prompt) plus the active paragraph or the previewed slice. Note contents outside that slice are never sent.
+- **Readwise import** — fetches from **readwise.io/api/v2/export/** using your Readwise token. Outbound only — no vault content leaves.
+- **Tasks push (Todoist)** — sends `A`-tagged span text to **api.todoist.com/rest/v2** using your Todoist token, one task per action.
+- **AnkiConnect sync** — talks to **127.0.0.1:8765** (your local Anki desktop), never the network.
+- **MCP server** — binds to **127.0.0.1** only. Off by default; opening a port is opt-in. Optional bearer token gates clients.
 
-To disable all network use, leave "Enable AI features" off in settings.
+All tokens are stored in this plugin's `data.json` (inside the vault's `.obsidian/plugins/` folder). They are **not** written to any vault note. To go fully offline, leave AI off and don't run the import/push commands.
 
 ---
 
@@ -126,6 +143,13 @@ Each tag routes downstream to one of the Neural OS encoding frameworks (NEDF, CA
 - **Auto-rebuild hub pages on edit** — off by default. Run "Rebuild concept hub pages" manually instead, or toggle on.
 - **AI co-reader** — enable, API key, model selection.
 - **Synthesis output folder** — default `Synthesis/`.
+- **Custom tags** / **Domains** — vault-wide tag extensions and per-note `semantic_domain:` profiles.
+- **Readwise / Kindle import** — token, destination folder, sync cursor.
+- **Tasks app push** — provider (Todoist / Things 3), token, default project, domain→project mapping.
+- **Calendar (.ics) export** — output path.
+- **Anki sync** — AnkiConnect endpoint, deck name.
+- **Daily note injection** — toggle.
+- **MCP server** — enable, port, optional bearer token.
 
 ![Settings panel — Reading / Knowledge graph / AI co-reader sections](docs/img/08-settings.png)
 

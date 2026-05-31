@@ -16,12 +16,25 @@ import { AtlasView, ATLAS_VIEW_TYPE } from './src/views/atlas-view';
 import { VaultAtlasView, VAULT_ATLAS_VIEW_TYPE } from './src/views/vault-atlas-view';
 import { ReviewView, REVIEW_VIEW_TYPE, StudyData, emptyStudyData } from './src/views/review-view';
 import { parseBody } from './src/syntax';
-import { rebuildFrontmatter, readModeFrom } from './src/frontmatter';
+import { rebuildFrontmatter, readDomainFrom, readModeFrom } from './src/frontmatter';
 import { buildMarkdown } from './src/export/markdown';
 import { buildAnkiCsvs, safeName } from './src/export/anki-csv';
 import { writeConceptCanvas } from './src/export/canvas';
 import { writeDataviewStarter } from './src/integrations/dataview-pack';
 import { writeActionsMoc } from './src/integrations/tasks-moc';
+import { writeRelationCanvas, writeRelationMermaid } from './src/integrations/relation-graph';
+import { writeActionsIcs } from './src/integrations/ics-export';
+import {
+  DEFAULT_TASKS_PUSH_OPTIONS,
+  TasksPushOptions,
+  pushActions,
+} from './src/integrations/tasks-push';
+import {
+  DEFAULT_READWISE_OPTIONS,
+  ReadwiseOptions,
+  importKindleClippings,
+  importReadwise,
+} from './src/integrations/readwise-import';
 import {
   AnkiConnectOptions,
   DEFAULT_ANKI_OPTIONS,
@@ -40,6 +53,8 @@ import {
   parseFromFrontmatter,
   validateCustomTag,
 } from './src/custom-tags';
+import { DomainProfile, findDomain, resolveTagsFor } from './src/domains';
+import { DOMAIN_PRESETS } from './src/domain-presets';
 import { AIClient, AIProviderConfig, DEFAULT_AI_CONFIG } from './src/ai/client';
 import { SuggestModal } from './src/ai/suggest';
 import { VaultIndexer } from './src/graph/vault-index';
@@ -60,8 +75,12 @@ interface SemanticReadingSettings {
   ai: AIProviderConfig;
   study: StudyData;
   customTags: CustomTagDef[];
+  domains: DomainProfile[];
   anki: AnkiConnectOptions;
   dailyNoteInjection: boolean;
+  icsPath: string;
+  tasksPush: TasksPushOptions;
+  readwise: ReadwiseOptions;
   mcp: McpServerOptions;
 }
 
@@ -75,8 +94,12 @@ const DEFAULT_SETTINGS: SemanticReadingSettings = {
   ai: DEFAULT_AI_CONFIG,
   study: emptyStudyData(),
   customTags: [],
+  domains: DOMAIN_PRESETS,
   anki: DEFAULT_ANKI_OPTIONS,
   dailyNoteInjection: false,
+  icsPath: 'actions.ics',
+  tasksPush: DEFAULT_TASKS_PUSH_OPTIONS,
+  readwise: DEFAULT_READWISE_OPTIONS,
   mcp: DEFAULT_MCP_OPTIONS,
 };
 
@@ -148,6 +171,15 @@ export default class SemanticReadingPlugin extends Plugin {
       await this.handleCaptureUri(params);
     });
 
+    // Re-apply custom tags when the active file changes — its semantic_domain
+    // frontmatter may select a different toolkit. Tracked via lastDomainName so
+    // we only re-mutate globals on actual change.
+    this.registerEvent(this.app.workspace.on('file-open', () => this.maybeSwitchDomain()));
+    this.registerEvent(this.app.metadataCache.on('changed', (file) => {
+      const active = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
+      if (active && file.path === active.path) this.maybeSwitchDomain();
+    }));
+
     // Daily-note injection: prepend a tag-state summary when opening today's daily note.
     this.registerEvent(this.app.workspace.on('file-open', async (file) => {
       if (!file || !this.settings.dailyNoteInjection) return;
@@ -182,6 +214,9 @@ export default class SemanticReadingPlugin extends Plugin {
     this.settings.ai = Object.assign({}, DEFAULT_AI_CONFIG, saved?.ai);
     this.settings.study = saved?.study || emptyStudyData();
     this.settings.customTags = Array.isArray(saved?.customTags) ? saved.customTags : [];
+    this.settings.domains = Array.isArray(saved?.domains) ? saved.domains : DOMAIN_PRESETS;
+    this.settings.tasksPush = Object.assign({}, DEFAULT_TASKS_PUSH_OPTIONS, saved?.tasksPush);
+    this.settings.readwise = Object.assign({}, DEFAULT_READWISE_OPTIONS, saved?.readwise);
     this.refreshCustomTags();
   }
   async saveSettings(): Promise<void> {
@@ -199,9 +234,46 @@ export default class SemanticReadingPlugin extends Plugin {
     }
   }
 
+  private lastDomainName: string | null = null;
+  private maybeSwitchDomain(): void {
+    const d = this.activeDomain();
+    const name = d ? d.name : null;
+    if (name === this.lastDomainName) return;
+    this.lastDomainName = name;
+    this.refreshCustomTags();
+    this.tagbar?.setMode(this.activeMode());
+  }
+
   refreshCustomTags(): void {
-    applyCustomTags(this.settings.customTags);
-    injectCustomTagCSS(this.settings.customTags);
+    const domain = this.activeDomain();
+    applyCustomTags(this.settings.customTags, domain);
+    // Inject CSS for universal customs + every domain's tags so opening any
+    // note already has its colors available.
+    const allDomainTags = (this.settings.domains || []).flatMap(d => d.tags);
+    injectCustomTagCSS([...this.settings.customTags, ...allDomainTags]);
+  }
+
+  domainForPath(notePath: string): string | null {
+    const file = this.app.vault.getAbstractFileByPath(notePath);
+    if (!(file instanceof TFile)) return null;
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+    return readDomainFrom(fm as Record<string, unknown> | null);
+  }
+
+  activeDomain(): DomainProfile | null {
+    const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
+    const fm = file ? this.app.metadataCache.getFileCache(file)?.frontmatter : null;
+    const name = readDomainFrom(fm as Record<string, unknown> | null);
+    return findDomain(this.settings.domains || [], name);
+  }
+
+  // Pure resolver: effective TAGS dict for any file, without mutating globals.
+  // Used by the public API and MCP tools so other tools can answer "what tags
+  // apply to note X?" regardless of which note is currently focused.
+  resolveTagsForFile(file: TFile): Record<string, ReturnType<typeof resolveTagsFor>[string]> {
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+    const name = readDomainFrom(fm as Record<string, unknown> | null);
+    return resolveTagsFor(findDomain(this.settings.domains || [], name), this.settings.customTags);
   }
 
   // Import custom-tag defs from the active note's `semantic_tags_def`
@@ -221,7 +293,9 @@ export default class SemanticReadingPlugin extends Plugin {
   activeMode(): number {
     const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
     const fm = file ? this.app.metadataCache.getFileCache(file)?.frontmatter : null;
-    return readModeFrom(fm as Record<string, unknown> | null, this.settings.defaultMode);
+    const domain = this.activeDomain();
+    const fallback = domain?.defaultMode ?? this.settings.defaultMode;
+    return readModeFrom(fm as Record<string, unknown> | null, fallback);
   }
 
   private hubFolders(): string[] {
@@ -306,11 +380,100 @@ export default class SemanticReadingPlugin extends Plugin {
     });
 
     this.addCommand({
+      id: 'relation-graph-mermaid',
+      name: 'Insert relation graph (Mermaid) from R-tags',
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
+        if (!file) return false;
+        if (!checking) this.insertRelationMermaid(file);
+        return true;
+      },
+    });
+
+    this.addCommand({
+      id: 'relation-graph-canvas',
+      name: 'Export relation graph (Canvas) from R-tags',
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
+        if (!file) return false;
+        if (!checking) this.exportRelationCanvas(file);
+        return true;
+      },
+    });
+
+    this.addCommand({
       id: 'build-actions-moc',
       name: 'Build Actions MOC (Tasks-plugin compatible)',
       callback: async () => {
         const r = await writeActionsMoc(this.app, this.indexer.get(), 'Actions.md');
         new Notice(`Actions MOC — ${r.count} action${r.count === 1 ? '' : 's'} → ${r.path}`);
+      },
+    });
+
+    this.addCommand({
+      id: 'import-readwise',
+      name: 'Import Readwise highlights',
+      callback: async () => {
+        if (!this.settings.readwise.token) {
+          new Notice('Set your Readwise token in plugin settings first.');
+          return;
+        }
+        new Notice('Readwise — fetching…');
+        try {
+          const r = await importReadwise(this.app, this.settings.readwise);
+          this.settings.readwise.lastUpdated = r.newLastUpdated;
+          await this.saveSettings();
+          const tail = r.failed ? `, failed ${r.failed}` : '';
+          new Notice(`Readwise — created ${r.created}, skipped ${r.skipped}${tail}`);
+          if (r.errors.length) console.warn('readwise errors:', r.errors);
+        } catch (err) {
+          new Notice(`Readwise import failed: ${(err as Error).message}`);
+          console.error('readwise-import failed', err);
+        }
+      },
+    });
+
+    this.addCommand({
+      id: 'import-kindle-clippings',
+      name: 'Import Kindle clippings from file…',
+      callback: () => this.pickKindleFile(),
+    });
+
+    this.addCommand({
+      id: 'sync-actions-to-tasks',
+      name: 'Sync actions to tasks app (Todoist / Things)',
+      callback: async () => {
+        if (this.settings.tasksPush.provider === 'none') {
+          new Notice('Pick a tasks provider in plugin settings first.');
+          return;
+        }
+        try {
+          const r = await pushActions(this.indexer.get(), this.settings.tasksPush, {
+            resolveDomain: (p) => this.domainForPath(p),
+          });
+          this.settings.tasksPush.syncedSrids = r.syncedSrids;
+          await this.saveSettings();
+          const tail = r.failed ? `, failed ${r.failed}` : '';
+          new Notice(`Tasks — added ${r.added}, skipped ${r.skipped}${tail}`);
+          if (r.errors.length) console.warn('tasks-push errors:', r.errors);
+        } catch (err) {
+          new Notice(`Tasks sync failed: ${(err as Error).message}`);
+          console.error('tasks-push failed', err);
+        }
+      },
+    });
+
+    this.addCommand({
+      id: 'export-actions-ics',
+      name: 'Export actions to ICS (calendar)',
+      callback: async () => {
+        try {
+          const r = await writeActionsIcs(this.app, this.indexer.get(), this.settings.icsPath);
+          new Notice(`ICS — ${r.count} event${r.count === 1 ? '' : 's'} → ${r.path}`);
+        } catch (err) {
+          new Notice(`ICS export failed: ${(err as Error).message}`);
+          console.error('ics-export failed', err);
+        }
       },
     });
 
@@ -469,6 +632,49 @@ export default class SemanticReadingPlugin extends Plugin {
     new Notice('Exported ' + targetPath);
   }
 
+  private pickKindleFile(): void {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.txt,text/plain';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const r = await importKindleClippings(this.app, text, this.settings.readwise.destFolder);
+        new Notice(`Kindle — ${r.books} book${r.books === 1 ? '' : 's'}, created ${r.created}, skipped ${r.skipped}`);
+      } catch (err) {
+        new Notice(`Kindle import failed: ${(err as Error).message}`);
+        console.error('kindle-import failed', err);
+      }
+    };
+    input.click();
+  }
+
+  private async insertRelationMermaid(file: TFile): Promise<void> {
+    try {
+      const body = await this.app.vault.read(file);
+      const paragraphs = parseBody(stripFrontmatter(body));
+      const r = await writeRelationMermaid(this.app, file, paragraphs);
+      new Notice(`Relation graph — ${r.edges} edge${r.edges === 1 ? '' : 's'} from R-tags`);
+    } catch (err) {
+      new Notice(`Relation graph failed: ${(err as Error).message}`);
+      console.error('relation-graph mermaid failed', err);
+    }
+  }
+
+  private async exportRelationCanvas(file: TFile): Promise<void> {
+    try {
+      const body = await this.app.vault.read(file);
+      const paragraphs = parseBody(stripFrontmatter(body));
+      const r = await writeRelationCanvas(this.app, file, paragraphs);
+      new Notice(`Canvas — ${r.nodes} nodes, ${r.edges} edges → ${r.path}`);
+    } catch (err) {
+      new Notice(`Relation canvas failed: ${(err as Error).message}`);
+      console.error('relation-graph canvas failed', err);
+    }
+  }
+
   private async exportAnki(file: TFile): Promise<void> {
     const body = await this.app.vault.read(file);
     const paragraphs = parseBody(stripFrontmatter(body));
@@ -618,7 +824,18 @@ class SemanticReadingSettingTab extends PluginSettingTab {
       text: 'Add tags beyond the built-in 19. They appear in the tagbar, the cards/sheet/gaps views, exports, and AI prompts. Sigils starting with a built-in name are rejected. Notes that use a custom tag automatically embed a `semantic_tags_def` block in their frontmatter, so other vaults can import the definition via the "Import custom tags from current note" command.',
       cls: 'setting-item-description',
     });
-    this.renderCustomTagsEditor(containerEl);
+    this.renderTagListEditor(
+      containerEl,
+      () => this.plugin.settings.customTags,
+      (next) => { this.plugin.settings.customTags = next; },
+    );
+
+    containerEl.createEl('h2', { text: 'Domains' });
+    containerEl.createEl('p', {
+      text: 'Per-note tag profiles. Activate a profile in any note by adding `semantic_domain: <name>` to its frontmatter. Each profile carries its own tags and a merge mode: add (built-ins + profile), subset (only listed built-ins + profile), or replace (only profile).',
+      cls: 'setting-item-description',
+    });
+    this.renderDomainsEditor(containerEl);
 
     containerEl.createEl('h2', { text: 'Review queue' });
     new Setting(containerEl)
@@ -660,6 +877,136 @@ class SemanticReadingSettingTab extends PluginSettingTab {
       .addToggle(t => {
         t.setValue(this.plugin.settings.dailyNoteInjection);
         t.onChange(async v => { this.plugin.settings.dailyNoteInjection = v; await this.plugin.saveSettings(); });
+      });
+
+    containerEl.createEl('h2', { text: 'Readwise / Kindle import' });
+    containerEl.createEl('p', {
+      text: 'Pull highlights into the vault as one note per book, ready to tag with semantic sigils. Existing destination notes are never overwritten — the importer skips books whose target file already exists.',
+      cls: 'setting-item-description',
+    });
+    new Setting(containerEl)
+      .setName('Readwise API token')
+      .setDesc('readwise.io → Settings → Access Token. Stored in plugin data.')
+      .addText(t => {
+        t.inputEl.type = 'password';
+        t.setPlaceholder('readwise token');
+        t.setValue(this.plugin.settings.readwise.token);
+        t.onChange(async v => { this.plugin.settings.readwise.token = v.trim(); await this.plugin.saveSettings(); });
+      });
+    new Setting(containerEl)
+      .setName('Destination folder')
+      .setDesc('Vault-relative. Created if missing. Used for both Readwise and Kindle imports.')
+      .addText(t => {
+        t.setValue(this.plugin.settings.readwise.destFolder);
+        t.onChange(async v => { this.plugin.settings.readwise.destFolder = v.trim() || 'Readwise'; await this.plugin.saveSettings(); });
+      });
+    new Setting(containerEl)
+      .setName('Last sync cursor')
+      .setDesc('ISO timestamp passed to Readwise as `updatedAfter`. Empty = full sync next run.')
+      .addText(t => {
+        t.setValue(this.plugin.settings.readwise.lastUpdated);
+        t.onChange(async v => { this.plugin.settings.readwise.lastUpdated = v.trim(); await this.plugin.saveSettings(); });
+      })
+      .addButton(b => {
+        b.setButtonText('Reset');
+        b.onClick(async () => {
+          this.plugin.settings.readwise.lastUpdated = '';
+          await this.plugin.saveSettings();
+          this.display();
+        });
+      });
+
+    containerEl.createEl('h2', { text: 'Tasks app push' });
+    containerEl.createEl('p', {
+      text: 'Push every A-tagged span to an external task manager. Re-runs are idempotent — each task carries an `srid_<blockId>` label, so already-synced actions are skipped. Domain-aware routing: a note\'s `semantic_domain` maps to a project/list via the table below.',
+      cls: 'setting-item-description',
+    });
+    new Setting(containerEl)
+      .setName('Provider')
+      .setDesc('Todoist uses the REST API. Things 3 uses x-callback-url on macOS/iOS.')
+      .addDropdown(d => {
+        d.addOption('none', '— off —');
+        d.addOption('todoist', 'Todoist');
+        d.addOption('things', 'Things 3');
+        d.setValue(this.plugin.settings.tasksPush.provider);
+        d.onChange(async v => {
+          this.plugin.settings.tasksPush.provider = v as TasksPushOptions['provider'];
+          await this.plugin.saveSettings();
+          this.display();
+        });
+      });
+    if (this.plugin.settings.tasksPush.provider === 'todoist') {
+      new Setting(containerEl)
+        .setName('Todoist API token')
+        .setDesc('Todoist → Settings → Integrations → Developer → API token. Stored in plugin data.')
+        .addText(t => {
+          t.inputEl.type = 'password';
+          t.setPlaceholder('todoist personal token');
+          t.setValue(this.plugin.settings.tasksPush.todoistToken);
+          t.onChange(async v => { this.plugin.settings.tasksPush.todoistToken = v.trim(); await this.plugin.saveSettings(); });
+        });
+      new Setting(containerEl)
+        .setName('Default project id')
+        .setDesc('Optional. If a note has no domain (or the domain isn\'t mapped below), tasks land here. Leave empty for Inbox.')
+        .addText(t => {
+          t.setValue(this.plugin.settings.tasksPush.defaultProject);
+          t.onChange(async v => { this.plugin.settings.tasksPush.defaultProject = v.trim(); await this.plugin.saveSettings(); });
+        });
+    }
+    if (this.plugin.settings.tasksPush.provider === 'things') {
+      new Setting(containerEl)
+        .setName('Default Things list')
+        .setDesc('Name of a Things list. Leave empty for Inbox.')
+        .addText(t => {
+          t.setValue(this.plugin.settings.tasksPush.defaultProject);
+          t.onChange(async v => { this.plugin.settings.tasksPush.defaultProject = v.trim(); await this.plugin.saveSettings(); });
+        });
+    }
+    if (this.plugin.settings.tasksPush.provider !== 'none') {
+      containerEl.createEl('p', {
+        text: 'Domain → project/list mapping. One per line as `domain = project_or_list_id`. Domains come from the `semantic_domain:` frontmatter field.',
+        cls: 'setting-item-description',
+      });
+      const mapEl = containerEl.createEl('textarea');
+      mapEl.rows = 5;
+      mapEl.style.width = '100%';
+      mapEl.style.fontFamily = 'var(--font-monospace)';
+      mapEl.placeholder = 'programming = 2334455667\nmeeting = 2334455700';
+      mapEl.value = Object.entries(this.plugin.settings.tasksPush.projectByDomain)
+        .map(([k, v]) => `${k} = ${v}`).join('\n');
+      mapEl.onchange = async () => {
+        const next: Record<string, string> = {};
+        for (const line of mapEl.value.split('\n')) {
+          const m = /^\s*([^=]+?)\s*=\s*(.+?)\s*$/.exec(line);
+          if (m) next[m[1]] = m[2];
+        }
+        this.plugin.settings.tasksPush.projectByDomain = next;
+        await this.plugin.saveSettings();
+      };
+      new Setting(containerEl)
+        .setName('Clear local sync record')
+        .setDesc('Forget which actions have already been pushed. Used by Things (which can\'t be queried). Next sync will re-push every action.')
+        .addButton(b => {
+          b.setButtonText('Clear').setWarning();
+          b.onClick(async () => {
+            this.plugin.settings.tasksPush.syncedSrids = [];
+            await this.plugin.saveSettings();
+            new Notice('Local sync record cleared.');
+          });
+        });
+    }
+
+    containerEl.createEl('h2', { text: 'Calendar (.ics) export' });
+    containerEl.createEl('p', {
+      text: 'Run "Export actions to ICS (calendar)" to write a `.ics` file pairing every A-tagged action with a co-located D (date) span in the same paragraph. Subscribe to the file from Calendar.app or any ICS-aware client.',
+      cls: 'setting-item-description',
+    });
+    new Setting(containerEl)
+      .setName('ICS output path')
+      .setDesc('Vault-relative. Defaults to `actions.ics` at the vault root.')
+      .addText(t => {
+        t.setValue(this.plugin.settings.icsPath);
+        t.onChange(async v => { this.plugin.settings.icsPath = v.trim() || 'actions.ics'; await this.plugin.saveSettings(); });
       });
 
     containerEl.createEl('h2', { text: 'MCP server' });
@@ -718,12 +1065,20 @@ class SemanticReadingSettingTab extends PluginSettingTab {
       });
   }
 
-  private renderCustomTagsEditor(parent: HTMLElement): void {
+  // Parameterized tag-list editor — used both for vault-wide custom tags and
+  // for each domain profile's tag list. Caller supplies a getter/setter pair
+  // so the editor doesn't need to know which list it's mutating.
+  private renderTagListEditor(
+    parent: HTMLElement,
+    getList: () => CustomTagDef[],
+    setList: (next: CustomTagDef[]) => void,
+    opts: { addLabel?: string; showImport?: boolean } = {},
+  ): void {
     const wrap = parent.createDiv({ cls: 'sr-custom-tags' });
 
     const draw = () => {
       wrap.empty();
-      const list = this.plugin.settings.customTags;
+      const list = getList();
 
       list.forEach((t, idx) => {
         const row = wrap.createDiv({ cls: 'sr-ct-row' });
@@ -773,45 +1128,166 @@ class SemanticReadingSettingTab extends PluginSettingTab {
         const del = row.createEl('button', { cls: 'sr-ct-del', text: '×' });
         del.title = 'Remove this tag';
         del.onclick = async () => {
-          this.plugin.settings.customTags = list.filter((_, i) => i !== idx);
+          setList(getList().filter((_, i) => i !== idx));
           await this.plugin.saveSettings();
           draw();
         };
       });
 
       const actions = wrap.createDiv({ cls: 'sr-ct-actions' });
-      const addBtn = actions.createEl('button', { cls: 'mod-cta', text: '+ Add custom tag' });
+      const addBtn = actions.createEl('button', { cls: 'mod-cta', text: opts.addLabel || '+ Add custom tag' });
       addBtn.onclick = async () => {
-        const sigil = nextFreeSigil(this.plugin.settings.customTags);
-        this.plugin.settings.customTags = [...this.plugin.settings.customTags, {
+        const sigil = nextFreeSigil(getList());
+        setList([...getList(), {
           sigil,
           name: 'New tag',
           family: 'Structure',
           desc: '',
           light: '#6c6c6c',
           dark: '#bdbdbd',
-        }];
+        }]);
         await this.plugin.saveSettings();
         draw();
       };
-      const importBtn = actions.createEl('button', { text: 'Import from current note' });
-      importBtn.title = 'Add any semantic_tags_def entries from the active note';
-      importBtn.onclick = async () => {
-        const r = await this.plugin.importCustomTagsFromActiveNote();
-        if (!r) { new Notice('Open a note first.'); return; }
-        if (r.added === 0 && r.skipped === 0) new Notice('No semantic_tags_def found in this note.');
-        else new Notice(`Custom tags — added ${r.added}, skipped ${r.skipped}`);
-        draw();
-      };
+      if (opts.showImport) {
+        const importBtn = actions.createEl('button', { text: 'Import from current note' });
+        importBtn.title = 'Add any semantic_tags_def entries from the active note';
+        importBtn.onclick = async () => {
+          const r = await this.plugin.importCustomTagsFromActiveNote();
+          if (!r) { new Notice('Open a note first.'); return; }
+          if (r.added === 0 && r.skipped === 0) new Notice('No semantic_tags_def found in this note.');
+          else new Notice(`Custom tags — added ${r.added}, skipped ${r.skipped}`);
+          draw();
+        };
+      }
     };
 
     const commit = async (next: CustomTagDef, idx: number) => {
-      const list = this.plugin.settings.customTags;
+      const list = getList();
       const others = list.filter((_, i) => i !== idx);
       const err = validateCustomTag(next, others);
       if (err) { new Notice(err); draw(); return; }
       list[idx] = next;
       await this.plugin.saveSettings();
+    };
+
+    draw();
+  }
+
+  private renderDomainsEditor(parent: HTMLElement): void {
+    const wrap = parent.createDiv({ cls: 'sr-domains' });
+
+    const draw = () => {
+      wrap.empty();
+      const list = this.plugin.settings.domains;
+
+      list.forEach((d, idx) => {
+        const card = wrap.createDiv({ cls: 'sr-domain-card' });
+
+        const header = card.createDiv({ cls: 'sr-domain-header' });
+
+        const enabled = header.createEl('input', { type: 'checkbox' });
+        enabled.checked = !d.disabled;
+        enabled.title = 'Enabled (uncheck to ignore this profile)';
+        enabled.onchange = async () => {
+          list[idx] = { ...d, disabled: !enabled.checked };
+          await this.plugin.saveSettings();
+        };
+
+        const nameEl = header.createEl('input', { type: 'text', value: d.name });
+        nameEl.placeholder = 'slug (matches semantic_domain)';
+        nameEl.style.flex = '0 0 12rem';
+        nameEl.onchange = async () => {
+          list[idx] = { ...d, name: nameEl.value.trim() };
+          await this.plugin.saveSettings();
+        };
+
+        const labelEl = header.createEl('input', { type: 'text', value: d.label });
+        labelEl.placeholder = 'human label';
+        labelEl.style.flex = '1';
+        labelEl.onchange = async () => {
+          list[idx] = { ...d, label: labelEl.value };
+          await this.plugin.saveSettings();
+        };
+
+        const merge = header.createEl('select');
+        (['add', 'subset', 'replace'] as const).forEach(m => {
+          const opt = merge.createEl('option', { text: m, value: m });
+          if (m === d.mergeMode) opt.selected = true;
+        });
+        merge.title = 'Merge mode: how this profile interacts with built-in tags';
+        merge.onchange = async () => {
+          list[idx] = { ...d, mergeMode: merge.value as DomainProfile['mergeMode'] };
+          await this.plugin.saveSettings();
+          draw();
+        };
+
+        const del = header.createEl('button', { cls: 'sr-ct-del', text: '×' });
+        del.title = 'Delete this domain profile';
+        del.onclick = async () => {
+          this.plugin.settings.domains = list.filter((_, i) => i !== idx);
+          await this.plugin.saveSettings();
+          draw();
+        };
+
+        if (d.mergeMode === 'subset') {
+          const sub = card.createDiv({ cls: 'sr-domain-sub' });
+          sub.createSpan({ text: 'Keep built-ins: ' });
+          const keep = sub.createEl('input', { type: 'text', value: (d.keepBuiltins || []).join(', ') });
+          keep.placeholder = 'Def, Q, R';
+          keep.style.width = '100%';
+          keep.onchange = async () => {
+            const parsed = keep.value.split(',').map(s => s.trim()).filter(Boolean);
+            list[idx] = { ...d, keepBuiltins: parsed };
+            await this.plugin.saveSettings();
+          };
+        }
+
+        const modeRow = card.createDiv({ cls: 'sr-domain-sub' });
+        modeRow.createSpan({ text: 'Default reading mode (optional): ' });
+        const modeEl = modeRow.createEl('input', { type: 'text', value: d.defaultMode ? String(d.defaultMode) : '' });
+        modeEl.placeholder = '1–5';
+        modeEl.style.width = '4rem';
+        modeEl.onchange = async () => {
+          const n = parseInt(modeEl.value, 10);
+          const next = n >= 1 && n <= 5 ? n : undefined;
+          list[idx] = { ...d, defaultMode: next };
+          await this.plugin.saveSettings();
+        };
+
+        const tagsLabel = card.createEl('p', { text: 'Tags', cls: 'setting-item-description' });
+        tagsLabel.style.marginTop = '0.5rem';
+        this.renderTagListEditor(
+          card,
+          () => list[idx].tags,
+          (next) => { list[idx] = { ...list[idx], tags: next }; },
+          { addLabel: '+ Add tag to this domain' },
+        );
+      });
+
+      const actions = wrap.createDiv({ cls: 'sr-ct-actions' });
+      const addBtn = actions.createEl('button', { cls: 'mod-cta', text: '+ Add domain profile' });
+      addBtn.onclick = async () => {
+        const taken = new Set(list.map(d => d.name));
+        let n = list.length + 1;
+        let name = `domain${n}`;
+        while (taken.has(name)) { n++; name = `domain${n}`; }
+        this.plugin.settings.domains = [...list, {
+          name,
+          label: 'New domain',
+          mergeMode: 'add',
+          tags: [],
+        }];
+        await this.plugin.saveSettings();
+        draw();
+      };
+      const resetBtn = actions.createEl('button', { text: 'Reset to presets' });
+      resetBtn.title = 'Replace all domain profiles with the bundled presets. This overwrites your edits.';
+      resetBtn.onclick = async () => {
+        this.plugin.settings.domains = JSON.parse(JSON.stringify(DOMAIN_PRESETS));
+        await this.plugin.saveSettings();
+        draw();
+      };
     };
 
     draw();

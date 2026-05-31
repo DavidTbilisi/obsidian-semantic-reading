@@ -1,5 +1,6 @@
 import {
   BUILTIN_KEY_TO_TAG,
+  BUILTIN_MODES,
   BUILTIN_TAGS,
   FamilyName,
   KEY_TO_TAG,
@@ -8,6 +9,7 @@ import {
   TAGS,
   resetRegistries,
 } from './constants';
+import type { DomainProfile } from './domains';
 
 export interface CustomTagDef {
   sigil: string;
@@ -47,26 +49,61 @@ export function validateCustomTag(t: CustomTagDef, others: CustomTagDef[]): stri
 // then merge each custom tag into TAGS, push it into the requested modes, and
 // bind its key. Existing built-in key bindings always win — a custom binding
 // only applies if the key is currently free.
-export function applyCustomTags(custom: CustomTagDef[]): void {
+//
+// `activeDomain`, when provided, switches the active toolkit per its mergeMode:
+//   - 'add'     : builtins + universal customs + domain tags
+//   - 'subset'  : only `keepBuiltins` + domain tags
+//   - 'replace' : only domain tags
+export function applyCustomTags(custom: CustomTagDef[], activeDomain?: DomainProfile | null): void {
   resetRegistries();
-  for (const t of custom || []) {
-    if (validateSigil(t.sigil)) continue;
-    TAGS[t.sigil] = {
-      name: t.name,
-      family: t.family,
-      desc: t.desc || '',
-      route: t.route || '*',
-      parent: t.parent,
-    };
-    const modes = t.inModes && t.inModes.length ? t.inModes : [1, 2, 3, 4, 5];
-    for (const m of modes) {
-      const md = MODES[m];
-      if (md && !md.tags.includes(t.sigil)) md.tags.push(t.sigil);
-    }
-    if (t.keyBinding) {
-      const k = t.keyBinding.toLowerCase();
-      if (!BUILTIN_KEY_TO_TAG[k]) KEY_TO_TAG[k] = t.sigil;
-    }
+
+  if (activeDomain && activeDomain.mergeMode !== 'add') {
+    pruneRegistriesForDomain(activeDomain);
+  }
+
+  const universal = activeDomain && activeDomain.mergeMode !== 'add' ? [] : (custom || []);
+  for (const t of universal) installCustomTag(t);
+
+  if (activeDomain) {
+    for (const t of activeDomain.tags || []) installCustomTag(t, /*inAllModes=*/true);
+  }
+}
+
+function installCustomTag(t: CustomTagDef, inAllModes = false): void {
+  if (validateSigil(t.sigil)) return;
+  TAGS[t.sigil] = {
+    name: t.name,
+    family: t.family,
+    desc: t.desc || '',
+    route: t.route || '*',
+    parent: t.parent,
+  };
+  const modes = inAllModes
+    ? Object.keys(MODES).map(Number)
+    : (t.inModes && t.inModes.length ? t.inModes : [1, 2, 3, 4, 5]);
+  for (const m of modes) {
+    const md = MODES[m];
+    if (md && !md.tags.includes(t.sigil)) md.tags.push(t.sigil);
+  }
+  if (t.keyBinding) {
+    const k = t.keyBinding.toLowerCase();
+    if (!BUILTIN_KEY_TO_TAG[k]) KEY_TO_TAG[k] = t.sigil;
+  }
+}
+
+// For 'subset' and 'replace' domains: drop any built-in sigils not in keepBuiltins
+// from both TAGS and every mode's tag list. resetRegistries() has already run,
+// so this operates on a clean baseline copy of BUILTIN_TAGS/BUILTIN_MODES.
+function pruneRegistriesForDomain(d: DomainProfile): void {
+  const keep = new Set<string>(d.mergeMode === 'subset' ? (d.keepBuiltins || []) : []);
+  for (const sigil of Object.keys(BUILTIN_TAGS)) {
+    if (!keep.has(sigil)) delete TAGS[sigil];
+  }
+  for (const k of Object.keys(BUILTIN_MODES)) {
+    const n = Number(k);
+    const md = MODES[n];
+    if (!md) continue;
+    md.tags = md.tags.filter(s => keep.has(s));
   }
 }
 

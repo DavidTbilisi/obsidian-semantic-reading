@@ -84,6 +84,20 @@ export function buildMcpContext(serverVersion: string, deps: ToolDeps): ServerCo
       },
     },
     {
+      name: 'sr_domains_list',
+      description: 'List configured domain profiles. Each profile bundles a per-note tag toolkit activated by `semantic_domain: <name>` frontmatter.',
+      inputSchema: { type: 'object', properties: {} },
+    },
+    {
+      name: 'sr_domains_for_note',
+      description: 'Resolve the active domain profile and effective tag dictionary for a note path. Use to learn which sigils are valid in a given note.',
+      inputSchema: {
+        type: 'object',
+        properties: { notePath: { type: 'string', description: 'Vault-relative path, e.g. "Inbox/today.md"' } },
+        required: ['notePath'],
+      },
+    },
+    {
       name: 'sr_suggest_tags',
       description: 'Ask the AI co-reader to propose semantic tags for a paragraph of prose, using the active reading mode\'s palette. Returns {suggestions: [{tag, span, confidence?, rationale?}]}. Requires the plugin\'s Anthropic API key to be configured.',
       inputSchema: {
@@ -157,6 +171,32 @@ export function buildMcpContext(serverVersion: string, deps: ToolDeps): ServerCo
       if (!(file instanceof TFile)) return { error: 'hub not found', path };
       const content = await deps.app.vault.read(file);
       return { path, content };
+    },
+    sr_domains_list: () => {
+      const domains = deps.api.domains.list();
+      return {
+        count: domains.length,
+        domains: domains.map(d => ({
+          name: d.name,
+          label: d.label,
+          mergeMode: d.mergeMode,
+          keepBuiltins: d.keepBuiltins || [],
+          tagSigils: d.tags.map(t => t.sigil),
+          defaultMode: d.defaultMode,
+          disabled: !!d.disabled,
+        })),
+      };
+    },
+    sr_domains_for_note: (args) => {
+      const notePath = String(args.notePath || '');
+      if (!notePath) throw new Error('notePath is required');
+      const profile = deps.api.domains.forNote(notePath);
+      const tags = deps.api.domains.tagsFor(notePath);
+      return {
+        notePath,
+        domain: profile ? { name: profile.name, label: profile.label, mergeMode: profile.mergeMode } : null,
+        tags: Object.keys(tags).map(sigil => ({ sigil, ...tags[sigil] })),
+      };
     },
     sr_suggest_tags: async (args) => {
       if (!deps.ai.isReady()) {

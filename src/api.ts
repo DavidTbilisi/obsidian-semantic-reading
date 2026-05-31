@@ -9,11 +9,14 @@
 //
 // Consumers should guard against `undefined` (plugin disabled / not installed).
 
+import { TFile } from 'obsidian';
 import type SemanticReadingPlugin from '../main';
 import { canonicalize, parseBody, serializeParagraph, Paragraph, Segment } from './syntax';
 import type { ConceptEntry, Mention, VaultIndex } from './graph/vault-index';
 import { buildCards, Card } from './study/card-builder';
 import { isDue, newCard, CardState } from './study/fsrs';
+import type { DomainProfile } from './domains';
+import type { TagDef } from './constants';
 
 export interface SemanticReadingAPI {
   /** Plugin version (mirrors manifest.json). */
@@ -61,6 +64,16 @@ export interface SemanticReadingAPI {
    * Fired after each incremental rebuild.
    */
   onIndexChange(cb: () => void): () => void;
+
+  /** Domain profiles: per-note tag toolkits selected via `semantic_domain:`. */
+  readonly domains: {
+    /** All configured profiles, in settings order (including disabled). */
+    list(): DomainProfile[];
+    /** The active profile for a given note path, or null if none. */
+    forNote(notePath: string): DomainProfile | null;
+    /** Effective TAGS dictionary for a given note (respects mergeMode). */
+    tagsFor(notePath: string): Record<string, TagDef>;
+  };
 }
 
 export function createApi(plugin: SemanticReadingPlugin, version: string): SemanticReadingAPI {
@@ -123,5 +136,30 @@ export function createApi(plugin: SemanticReadingPlugin, version: string): Seman
     onIndexChange(cb) {
       return indexer().subscribe('changed', cb);
     },
+
+    domains: {
+      list() {
+        return plugin.settings.domains || [];
+      },
+      forNote(notePath) {
+        const file = plugin.app.vault.getAbstractFileByPath(notePath);
+        if (!(file instanceof TFile)) return null;
+        const fm = plugin.app.metadataCache.getFileCache(file)?.frontmatter;
+        const name = readDomainName(fm);
+        if (!name) return null;
+        return (plugin.settings.domains || []).find(d => d.name === name && !d.disabled) || null;
+      },
+      tagsFor(notePath) {
+        const file = plugin.app.vault.getAbstractFileByPath(notePath);
+        if (!(file instanceof TFile)) return {};
+        return plugin.resolveTagsForFile(file);
+      },
+    },
   };
+}
+
+function readDomainName(fm: Record<string, unknown> | undefined): string | null {
+  if (!fm) return null;
+  const d = (fm as Record<string, unknown>).semantic_domain;
+  return typeof d === 'string' && d.trim() ? d.trim() : null;
 }
