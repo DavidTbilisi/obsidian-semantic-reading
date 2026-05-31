@@ -42,17 +42,30 @@ export class CardsView extends ItemView {
   }
 
   private async refresh(): Promise<void> {
-    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-    const file = view?.file ?? null;
+    // Use getActiveFile() instead of getActiveViewOfType(MarkdownView):
+    // the latter returns null whenever the side panel itself is focused
+    // (e.g. right after the user clicks Sheet/Gaps), wiping paragraphs
+    // and rendering an empty view. getActiveFile() tracks the last
+    // active *file* across leaf switches.
+    const file = this.app.workspace.getActiveFile() ?? null;
     this.currentFile = file;
-    if (!file) {
+    if (!file || file.extension !== 'md') {
       this.paragraphs = [];
       this.render();
       return;
     }
-    const body = view!.editor ? view!.editor.getValue() : await this.app.vault.read(file);
+    const editor = this.findEditorFor(file);
+    const body = editor ? editor.getValue() : await this.app.vault.read(file);
     this.paragraphs = parseBody(stripFrontmatter(body));
     this.render();
+  }
+
+  private findEditorFor(file: TFile): import('obsidian').Editor | null {
+    for (const leaf of this.app.workspace.getLeavesOfType('markdown')) {
+      const v = leaf.view;
+      if (v instanceof MarkdownView && v.file?.path === file.path) return v.editor;
+    }
+    return null;
   }
 
   private render(): void {
