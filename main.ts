@@ -29,6 +29,8 @@ import {
   syncCardsToAnki,
 } from './src/integrations/ankiconnect';
 import { maybeInjectDaily } from './src/integrations/daily-note';
+import { DEFAULT_MCP_OPTIONS, McpServer, McpServerOptions } from './src/mcp/server';
+import { buildMcpContext } from './src/mcp/tools';
 import { FAMILIES, MODES } from './src/constants';
 import {
   CustomTagDef,
@@ -60,6 +62,7 @@ interface SemanticReadingSettings {
   customTags: CustomTagDef[];
   anki: AnkiConnectOptions;
   dailyNoteInjection: boolean;
+  mcp: McpServerOptions;
 }
 
 const DEFAULT_SETTINGS: SemanticReadingSettings = {
@@ -74,6 +77,7 @@ const DEFAULT_SETTINGS: SemanticReadingSettings = {
   customTags: [],
   anki: DEFAULT_ANKI_OPTIONS,
   dailyNoteInjection: false,
+  mcp: DEFAULT_MCP_OPTIONS,
 };
 
 export default class SemanticReadingPlugin extends Plugin {
@@ -82,6 +86,7 @@ export default class SemanticReadingPlugin extends Plugin {
   ai!: AIClient;
   indexer!: VaultIndexer;
   api!: SemanticReadingAPI;
+  mcp!: McpServer;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -91,6 +96,13 @@ export default class SemanticReadingPlugin extends Plugin {
     this.indexer = new VaultIndexer(this.app, this.hubFolders());
     this.addChild(this.indexer);
     this.api = createApi(this, this.manifest.version);
+    this.mcp = new McpServer(buildMcpContext(this.manifest.version, {
+      app: this.app,
+      api: this.api,
+      ai: this.ai,
+      conceptsFolder: () => this.settings.conceptsFolder,
+      activeMode: () => this.activeMode(),
+    }));
 
     this.registerEditorExtension(semanticReadingExtension);
     this.registerMarkdownPostProcessor(semanticReadingPostProcessor);
@@ -152,11 +164,16 @@ export default class SemanticReadingPlugin extends Plugin {
     // Kick the indexer once layout is ready (avoids races on plugin enable).
     this.app.workspace.onLayoutReady(() => {
       this.indexer.init().catch(err => console.error('indexer init failed', err));
+      this.mcp.start(this.settings.mcp).catch(err => {
+        console.error('MCP server failed to start', err);
+        new Notice(`MCP server failed: ${(err as Error).message}`);
+      });
     });
   }
 
   async onunload(): Promise<void> {
     this.tagbar?.destroy();
+    await this.mcp?.stop();
   }
 
   async loadSettings(): Promise<void> {
@@ -173,6 +190,13 @@ export default class SemanticReadingPlugin extends Plugin {
     this.tagbar?.setMode(this.activeMode());
     this.ai?.update(this.settings.ai);
     this.indexer?.setHubFolders(this.hubFolders());
+    // Restart MCP if its config changed (start() does its own stop()-first).
+    if (this.mcp) {
+      this.mcp.start(this.settings.mcp).catch(err => {
+        console.error('MCP server restart failed', err);
+        new Notice(`MCP server failed: ${(err as Error).message}`);
+      });
+    }
   }
 
   refreshCustomTags(): void {
@@ -287,6 +311,20 @@ export default class SemanticReadingPlugin extends Plugin {
       callback: async () => {
         const r = await writeActionsMoc(this.app, this.indexer.get(), 'Actions.md');
         new Notice(`Actions MOC — ${r.count} action${r.count === 1 ? '' : 's'} → ${r.path}`);
+      },
+    });
+
+    this.addCommand({
+      id: 'mcp-status',
+      name: 'MCP server: show status',
+      callback: () => {
+        if (this.mcp.isRunning()) {
+          new Notice(`MCP server: listening on http://127.0.0.1:${this.mcp.runningPort()}${this.settings.mcp.token ? ' (token required)' : ' (no auth)'}`);
+        } else {
+          new Notice(this.settings.mcp.enabled
+            ? 'MCP server: enabled but not running. Check logs.'
+            : 'MCP server: disabled. Enable it in plugin settings.');
+        }
       },
     });
 
@@ -622,6 +660,61 @@ class SemanticReadingSettingTab extends PluginSettingTab {
       .addToggle(t => {
         t.setValue(this.plugin.settings.dailyNoteInjection);
         t.onChange(async v => { this.plugin.settings.dailyNoteInjection = v; await this.plugin.saveSettings(); });
+      });
+
+    containerEl.createEl('h2', { text: 'MCP server' });
+    containerEl.createEl('p', {
+      text: 'Expose the vault tag index as MCP tools so Claude Desktop / Cursor / VS Code (or any MCP client) can query and call AI Suggest. JSON-RPC 2.0 over HTTP, bound to 127.0.0.1 only. Desktop Obsidian only — no-op on mobile.',
+      cls: 'setting-item-description',
+    });
+    new Setting(containerEl)
+      .setName('Enable MCP server')
+      .setDesc('Start an HTTP MCP server when Obsidian is running. Off by default — opening a port is opt-in.')
+      .addToggle(t => {
+        t.setValue(this.plugin.settings.mcp.enabled);
+        t.onChange(async v => { this.plugin.settings.mcp.enabled = v; await this.plugin.saveSettings(); });
+      });
+    new Setting(containerEl)
+      .setName('Port')
+      .setDesc('Default: 8745. Change if it collides with another service.')
+      .addText(t => {
+        t.setValue(String(this.plugin.settings.mcp.port));
+        t.onChange(async v => {
+          const n = parseInt(v, 10);
+          if (n > 0 && n < 65536) {
+            this.plugin.settings.mcp.port = n;
+            await this.plugin.saveSettings();
+          }
+        });
+      });
+    new Setting(containerEl)
+      .setName('Bearer token (optional)')
+      .setDesc('If set, clients must send `Authorization: Bearer <token>`. Leave empty for no auth (still localhost-only).')
+      .addText(t => {
+        t.inputEl.type = 'password';
+        t.setPlaceholder('(no auth)');
+        t.setValue(this.plugin.settings.mcp.token);
+        t.onChange(async v => { this.plugin.settings.mcp.token = v.trim(); await this.plugin.saveSettings(); });
+      });
+    new Setting(containerEl)
+      .setName('Connection snippet')
+      .setDesc('Copy a sample Claude Desktop / Cursor MCP server config to clipboard.')
+      .addButton(b => {
+        b.setButtonText('Copy config');
+        b.onClick(async () => {
+          const port = this.plugin.settings.mcp.port;
+          const token = this.plugin.settings.mcp.token;
+          const headers = token ? `, "headers": { "Authorization": "Bearer ${token}" }` : '';
+          const snippet = `{
+  "mcpServers": {
+    "semantic-reading": {
+      "url": "http://127.0.0.1:${port}/"${headers}
+    }
+  }
+}`;
+          await navigator.clipboard.writeText(snippet);
+          new Notice('Copied MCP config snippet to clipboard.');
+        });
       });
   }
 
