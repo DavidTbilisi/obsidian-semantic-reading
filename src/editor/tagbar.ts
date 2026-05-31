@@ -4,7 +4,8 @@ import {
 } from '../constants';
 import {
   applyTagRange,
-  findParagraphAt,
+  blockIdFor,
+  findParagraphWithIndexAt,
   parseParagraph,
   plainTextOf,
   rawToPlain,
@@ -131,8 +132,9 @@ export class Tagbar {
     if (!editor || !sel) return;
 
     const body = editor.getValue();
-    const para = findParagraphAt(body, sel.from);
-    if (!para) { this.hide(); return; }
+    const found = findParagraphWithIndexAt(body, sel.from);
+    if (!found) { this.hide(); return; }
+    const { block: para, index: paraIndex } = found;
 
     // Clamp selection to the paragraph bounds.
     const fromInPara = Math.max(0, sel.from - para.start);
@@ -148,8 +150,13 @@ export class Tagbar {
     const newSegs = applyTagRange(segs, plainFrom, plainTo, tag);
     const newText = serializeParagraph(newSegs);
 
+    // Ensure paragraph carries a block-id so [[note#^id]] links from hub/synthesis resolve.
+    // Use the existing id if there is one (user-set or assigned earlier); otherwise mint p<n>-sr.
+    const blockId = para.blockId || blockIdFor(paraIndex);
+    const finalText = newText + ' ^' + blockId;
+
     editor.replaceRange(
-      newText,
+      finalText,
       editor.offsetToPos(para.start),
       editor.offsetToPos(para.end)
     );

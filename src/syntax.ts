@@ -294,6 +294,20 @@ export function findParagraphIndexAt(body: string, docOffset: number): number {
   return -1;
 }
 
+// Like findParagraphAt, but also returns the paragraph's index. Saves a duplicate splitParagraphs.
+export function findParagraphWithIndexAt(
+  body: string,
+  docOffset: number
+): { block: ParagraphBlock; index: number } | null {
+  const blocks = splitParagraphs(body);
+  for (let i = 0; i < blocks.length; i++) {
+    if (docOffset >= blocks[i].start && docOffset <= blocks[i].end) {
+      return { block: blocks[i], index: i };
+    }
+  }
+  return null;
+}
+
 // === Block IDs ===
 
 // Build the canonical block-id for paragraph index `pi` (0-based).

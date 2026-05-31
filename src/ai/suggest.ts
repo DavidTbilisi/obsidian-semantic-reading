@@ -1,6 +1,15 @@
 import { App, Editor, MarkdownView, Modal, Notice } from 'obsidian';
 import { AIClient, TagSuggestion } from './client';
-import { applyTagRange, findParagraphAt, parseParagraph, plainTextOf, serializeParagraph, stripOffsets } from '../syntax';
+import {
+  applyTagRange,
+  blockIdFor,
+  findParagraphAt,
+  parseParagraph,
+  plainTextOf,
+  serializeParagraph,
+  splitParagraphs,
+  stripOffsets,
+} from '../syntax';
 import { TAGS, MODES, cssTag } from '../constants';
 
 export class SuggestModal extends Modal {
@@ -137,33 +146,13 @@ export class SuggestModal extends Modal {
     }
     const newSegs = applyTagRange(segs, idx, idx + s.span.length, s.tag);
     const newText = serializeParagraph(newSegs);
+    const blockId = para.blockId || blockIdFor(this.paragraphIndex);
+    const finalText = newText + ' ^' + blockId;
     editor.replaceRange(
-      newText,
+      finalText,
       editor.offsetToPos(para.start),
       editor.offsetToPos(para.end)
     );
     s.accepted = true;
   }
-}
-
-// Local copy to avoid the cards-view import cycle.
-function splitParagraphs(body: string): { text: string; start: number; end: number }[] {
-  const out: { text: string; start: number; end: number }[] = [];
-  const re = /\n[ \t]*\n+/g;
-  let last = 0;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(body)) !== null) {
-    pushBlock(out, body, last, m.index);
-    last = re.lastIndex;
-  }
-  pushBlock(out, body, last, body.length);
-  return out;
-}
-function pushBlock(out: { text: string; start: number; end: number }[], body: string, s: number, e: number): void {
-  const slice = body.slice(s, e).replace(/^\s+|\s+$/g, '');
-  if (!slice.length) return;
-  let i = s, j = e;
-  while (i < j && /\s/.test(body[i])) i++;
-  while (j > i && /\s/.test(body[j - 1])) j--;
-  out.push({ text: body.slice(i, j), start: i, end: j });
 }

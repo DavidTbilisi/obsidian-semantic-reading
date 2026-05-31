@@ -1,5 +1,12 @@
 import { App, TFile, Component, Events } from 'obsidian';
-import { parseBody, canonicalize, blockIdFor, Paragraph } from '../syntax';
+import {
+  blockIdFor,
+  canonicalize,
+  parseParagraph,
+  splitParagraphs,
+  stripOffsets,
+  Paragraph,
+} from '../syntax';
 import { stripFrontmatter } from '../views/cards-view';
 
 export interface Mention {
@@ -47,6 +54,13 @@ export class VaultIndexer extends Component {
 
   on(name: 'changed', cb: () => void): ReturnType<Events['on']> {
     return this.events.on(name, cb);
+  }
+
+  // Subscribe to index changes and get an unsubscribe function back. Preferred
+  // shape for external API consumers that don't want to deal with EventRefs.
+  subscribe(name: 'changed', cb: () => void): () => void {
+    const ref = this.events.on(name, cb);
+    return () => this.events.offref(ref);
   }
 
   get(): VaultIndex { return this.index; }
@@ -112,8 +126,12 @@ export class VaultIndexer extends Component {
     const body = await this.app.vault.read(file);
     const fmCache = this.app.metadataCache.getFileCache(file)?.frontmatter;
     if (fmCache && fmCache.sr_hub === true) return; // safety net: skip hub files
-    const paragraphs = parseBody(stripFrontmatter(body));
-    const slice = buildPerFileSlice(file.path, paragraphs);
+    const blocks = splitParagraphs(stripFrontmatter(body));
+    const paragraphs = blocks.map(b => parseParagraph(b.text).map(stripOffsets));
+    // Use the block-id actually written into the source when present, so a
+    // paragraph keeps its id across reorders. Fall back to the canonical p<n>-sr.
+    const blockIds = blocks.map((b, pi) => b.blockId || blockIdFor(pi));
+    const slice = buildPerFileSlice(file.path, paragraphs, blockIds);
     this.perFile.set(file.path, slice);
     if (emit) {
       this.rebuild();
@@ -161,13 +179,17 @@ export class VaultIndexer extends Component {
   }
 }
 
-function buildPerFileSlice(notePath: string, paragraphs: Paragraph[]): PerFileSlice {
+function buildPerFileSlice(
+  notePath: string,
+  paragraphs: Paragraph[],
+  blockIds: string[]
+): PerFileSlice {
   const concepts: Record<string, Mention[]> = {};
   const byTag: Record<string, Mention[]> = {};
   const paragraphConcepts: string[][] = [];
   paragraphs.forEach((segs, pi) => {
     const here: string[] = [];
-    const blockId = blockIdFor(pi);
+    const blockId = blockIds[pi];
     for (const s of segs) {
       if (!s.tag) continue;
       const mention: Mention = {

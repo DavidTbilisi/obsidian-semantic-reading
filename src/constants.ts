@@ -9,7 +9,7 @@ export interface TagDef {
   parent?: string;
 }
 
-export const TAGS: Record<string, TagDef> = {
+export const BUILTIN_TAGS: Record<string, TagDef> = {
   N:      { name: 'Name',          family: 'Anchor',    desc: 'people / things / titles',                    route: 'HEART' },
   D:      { name: 'Date',          family: 'Anchor',    desc: 'when something happened',                     route: 'CAST'  },
   P:      { name: 'Place',         family: 'Anchor',    desc: 'where something happened',                    route: 'CAST'  },
@@ -47,7 +47,7 @@ export interface ModeDef {
   tags: string[];
 }
 
-export const MODES: Record<number, ModeDef> = {
+export const BUILTIN_MODES: Record<number, ModeDef> = {
   1: { name: 'Easy',         desc: 'stop reading passively, surface obvious anchors',  tags: ['Def','Ex','A','Q','N','D','P'] },
   2: { name: 'Functional',   desc: 'separate information by role, not just content',   tags: ['Def','Ex','R','Ev','A','Q','M'] },
   3: { name: 'Structural',   desc: 'make local structure visible',                     tags: ['Def','Mn','Ex','An','R','Ev','A','Q','M','C','B','L'] },
@@ -69,11 +69,39 @@ export const CARD_GROUPS: { label: string; tags: string[] }[] = [
 ];
 
 // Letter → tag shortcut map, identical to the existing app's keymap (utils.js).
-export const KEY_TO_TAG: Record<string, string> = {
+export const BUILTIN_KEY_TO_TAG: Record<string, string> = {
   d: 'Def', q: 'Q', r: 'R', m: 'M', a: 'A', c: 'C', b: 'B', l: 'L',
   t: 'T',   x: 'X', n: 'N', p: 'P', w: 'D', s: 'Assump',
   e: 'Ev',  g: 'Ex', i: 'Mn', y: 'An', o: 'Opp',
 };
+
+// Mutable working copies — initialized from the BUILTIN_* baselines, then
+// extended at runtime by applyCustomTags() in src/custom-tags.ts. Consumers
+// import these and read from them as plain dictionaries; mutating in place
+// means everyone picks up custom-tag overlays without a refactor.
+export const TAGS: Record<string, TagDef> = { ...BUILTIN_TAGS };
+export const MODES: Record<number, ModeDef> = cloneModes(BUILTIN_MODES);
+export const KEY_TO_TAG: Record<string, string> = { ...BUILTIN_KEY_TO_TAG };
+
+function cloneModes(src: Record<number, ModeDef>): Record<number, ModeDef> {
+  const out: Record<number, ModeDef> = {};
+  for (const k of Object.keys(src)) {
+    const n = Number(k);
+    out[n] = { ...src[n], tags: [...src[n].tags] };
+  }
+  return out;
+}
+
+// Reset TAGS/MODES/KEY_TO_TAG back to the built-in baseline. Called by
+// applyCustomTags() before re-applying overlays.
+export function resetRegistries(): void {
+  for (const k of Object.keys(TAGS)) delete TAGS[k];
+  Object.assign(TAGS, BUILTIN_TAGS);
+  for (const k of Object.keys(MODES)) delete (MODES as Record<string, unknown>)[k];
+  Object.assign(MODES, cloneModes(BUILTIN_MODES));
+  for (const k of Object.keys(KEY_TO_TAG)) delete KEY_TO_TAG[k];
+  Object.assign(KEY_TO_TAG, BUILTIN_KEY_TO_TAG);
+}
 
 export function tagForKey(key: string): string | null {
   return KEY_TO_TAG[key.toLowerCase()] || null;

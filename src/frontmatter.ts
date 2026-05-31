@@ -1,6 +1,7 @@
 import { App, TFile } from 'obsidian';
 import { Paragraph, flatExtracts } from './syntax';
 import { TAGS } from './constants';
+import { CustomTagDef, customTagsUsedIn, serializeForFrontmatter } from './custom-tags';
 
 export interface SemanticTagEntry {
   tag: string;
@@ -15,7 +16,8 @@ export async function rebuildFrontmatter(
   app: App,
   file: TFile,
   paragraphs: Paragraph[],
-  mode: number
+  mode: number,
+  customTags: CustomTagDef[] = []
 ): Promise<void> {
   const extracts = flatExtracts(paragraphs).filter(e => TAGS[e.tag]);
   const entries: SemanticTagEntry[] = extracts.map(e => {
@@ -23,10 +25,13 @@ export async function rebuildFrontmatter(
     if (e.note) out.note = e.note;
     return out;
   });
+  const used = customTagsUsedIn(extracts.map(e => e.tag), customTags);
   await app.fileManager.processFrontMatter(file, (fm) => {
     if (entries.length) fm.semantic_tags = entries;
     else delete fm.semantic_tags;
     fm.semantic_mode = mode;
+    if (used.length) fm.semantic_tags_def = serializeForFrontmatter(used);
+    else delete fm.semantic_tags_def;
   });
 }
 
