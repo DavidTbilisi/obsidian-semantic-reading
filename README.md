@@ -4,6 +4,8 @@ Mark prose with semantic sigils — **Def**, **R**, **Q**, **A**, **M**, and 14 
 
 A reading-to-knowledge-to-writing loop, all inside Obsidian.
 
+![A note in Reading mode with semantic sigils rendered inline](docs/img/01-hero-reading.png)
+
 ---
 
 ## Install via BRAT (recommended for now)
@@ -26,13 +28,24 @@ BRAT will auto-update the plugin whenever a new release is cut.
 
 Select text in any note. A floating tagbar appears. Press a letter (`d`=Def, `r`=R, `q`=Q, `a`=A, `m`=M, etc.) or click the sigil. The selection is wrapped in inline `{{Def|cognition}}` syntax and rendered as a colored span with a superscript label in both Live Preview and Reading mode.
 
+![Live Preview showing inline {{Tag|text}} markup and the rendered sigils](docs/img/02-live-preview.png)
+
 **Modes** (1–5) control which tags are available — Easy surfaces obvious anchors, Structural makes local structure visible, Regenerative exposes the whole 19-tag palette. Per-note override via `semantic_mode: 5` in frontmatter.
 
 ### 2. KNOW — vault-wide knowledge graph
 
-- **Cards / Sheet / Gaps** side view — per-note inventory of tagged spans.
+- **Cards / Sheet / Gaps** side view — per-note inventory of tagged spans, grouped by semantic family.
+
+  ![Cards view alongside its source note, tags grouped into Concepts / Anchors / Constraints / Tensions](docs/img/03-cards-view.png)
+
 - **Per-note Atlas** — SVG concept graph of `Def` tags in the current note.
+
+  ![Per-note Semantic Atlas, with concept nodes for one note](docs/img/04-atlas-view.png)
+
 - **Vault-wide Atlas** — force-directed graph of every `Def` across the vault. Click a node to open its hub page.
+
+  ![Vault-wide concept atlas covering every Def across the vault](docs/img/05-vault-atlas.png)
+
 - **Concept hub pages** — auto-generated `Concepts/<name>.md` aggregating every definition of a concept across all notes. Backlinks panel and graph view light up for free.
 - **Search by tag** — quick-switcher modal (`Cmd-P → Search vault by tag`): type `Q ` for every open question, `Def cog` to fuzzy-match concepts.
 
@@ -41,6 +54,8 @@ Select text in any note. A floating tagbar appears. Press a letter (`d`=Def, `r`
 - **Review queue** (`Cmd-P → Open review queue`) — full-pane study UI. Space to flip, 1–4 to rate. FSRS-v5 scheduler (vendored, no native deps).
 - Tagged `Def` spans become cloze cards. `Q` spans become recall cards. Opt-in per tag.
 - Streak + daily counter tracked in plugin data.
+
+![Review queue showing a Def cloze with Queue / Today / Streak counters](docs/img/06-review.png)
 
 ### 4. MAKE — AI synthesis from tags
 
@@ -53,6 +68,10 @@ Select text in any note. A floating tagbar appears. Press a letter (`d`=Def, `r`
 - **Reading agenda** — global open `Q`s ranked
 
 The slice fed to the LLM is shown to you before the call. Output lands in `Synthesis/` with full provenance — every claim links back to the source paragraph.
+
+Every plugin entry-point lives under one prefix in the command palette:
+
+![Command palette filtered to "semantic reading" showing every command](docs/img/07-commands.png)
 
 ### Exports (no AI required)
 
@@ -108,6 +127,8 @@ Each tag routes downstream to one of the Neural OS encoding frameworks (NEDF, CA
 - **AI co-reader** — enable, API key, model selection.
 - **Synthesis output folder** — default `Synthesis/`.
 
+![Settings panel — Reading / Knowledge graph / AI co-reader sections](docs/img/08-settings.png)
+
 ---
 
 ## Keyboard shortcuts (when active)
@@ -138,6 +159,18 @@ ln -s "$(pwd)" /path/to/vault/.obsidian/plugins/semantic-reading
 ```
 
 Then `Cmd-P → Reload app without saving` in Obsidian picks up each rebuild.
+
+### Regenerating the screenshots in this README
+
+The screenshots under `docs/img/` are scripted, not hand-captured. The drivers live in the [companion standalone-app repo](https://github.com/DavidTbilisi/semantic-reading) (`semantic-reading/scripts/plugin-demo/`) — they spin up an isolated Obsidian instance with `--user-data-dir` and `--remote-debugging-port`, seed a throwaway vault, attach via Playwright CDP, and walk through every view. To regenerate after a UI change:
+
+```sh
+# from inside the semantic-reading repo (where scripts/ + Playwright live)
+npm run build --prefix ../obsidian-semantic-reading   # rebuild main.js
+npm run demo:plugin                                    # captures into ../obsidian-semantic-reading/docs/img/
+```
+
+The launcher uses its own `--user-data-dir` so it never touches your real Obsidian session.
 
 ---
 
