@@ -22,6 +22,21 @@ BRAT will auto-update the plugin whenever a new release is cut.
 
 ---
 
+## Documentation
+
+Deep-dive docs live on the [wiki](https://github.com/DavidTbilisi/obsidian-semantic-reading/wiki):
+
+- [Inline Syntax](https://github.com/DavidTbilisi/obsidian-semantic-reading/wiki/Inline-Syntax) — the `{{Tag|text}}` grammar
+- [Tag Taxonomy](https://github.com/DavidTbilisi/obsidian-semantic-reading/wiki/Tag-Taxonomy) — 19 builtins, families, encoding frameworks
+- [Domain Profiles](https://github.com/DavidTbilisi/obsidian-semantic-reading/wiki/Domain-Profiles) — per-note tag toolkits via `semantic_domain:`
+- [Integrations](https://github.com/DavidTbilisi/obsidian-semantic-reading/wiki/Integrations) — Anki, Readwise, Todoist/Things, ICS, Mermaid/Canvas, …
+- [MCP Server](https://github.com/DavidTbilisi/obsidian-semantic-reading/wiki/MCP-Server) — JSON-RPC tools for Claude Desktop / Cursor / VS Code
+- [Public API](https://github.com/DavidTbilisi/obsidian-semantic-reading/wiki/Public-API) — for Templater / Dataview JS / other plugins
+- [Settings Reference](https://github.com/DavidTbilisi/obsidian-semantic-reading/wiki/Settings-Reference)
+- [Troubleshooting](https://github.com/DavidTbilisi/obsidian-semantic-reading/wiki/Troubleshooting)
+
+---
+
 ## What it does
 
 ### 1. MARK — tag prose with sigils
