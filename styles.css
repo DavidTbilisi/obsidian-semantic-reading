@@ -380,9 +380,84 @@
 .sr-ct-name   { width: 130px; }
 .sr-ct-family { width: 100px; }
 .sr-ct-desc   { flex: 1; min-width: 160px; }
-.sr-ct-color  { width: 34px; padding: 0; height: 24px; border: 1px solid var(--background-modifier-border); }
-.sr-ct-key    { width: 32px; text-align: center; font-family: var(--font-monospace); }
-.sr-ct-modes  { width: 78px; font-family: var(--font-monospace); }
+
+/* Split-swatch color chip. Left half = light theme, right half = dark.
+   The two color inputs are visually flush, no internal border. */
+.sr-ct-swatch {
+  position: relative;
+  width: 48px;
+  height: 24px;
+  flex: 0 0 48px;
+  display: flex;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 120ms ease, transform 120ms ease;
+}
+.sr-ct-swatch:hover { border-color: var(--text-muted); transform: translateY(-1px); }
+.sr-ct-swatch-input {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: 1 1 50%;
+  height: 100%;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  cursor: pointer;
+  background: transparent;
+}
+.sr-ct-swatch-input::-webkit-color-swatch-wrapper { padding: 0; }
+.sr-ct-swatch-input::-webkit-color-swatch { border: 0; border-radius: 0; }
+.sr-ct-swatch-input::-moz-color-swatch { border: 0; border-radius: 0; }
+.sr-ct-swatch-light { border-right: 1px solid var(--background-modifier-border); }
+
+/* Keycap-styled single-letter shortcut. */
+.sr-ct-key {
+  width: 30px;
+  height: 26px;
+  text-align: center;
+  font-family: var(--font-monospace);
+  font-weight: 700;
+  text-transform: uppercase;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  box-shadow: inset 0 -1px 0 var(--background-modifier-border);
+  padding: 0;
+}
+.sr-ct-key::placeholder { color: var(--text-faint); font-weight: 400; }
+
+/* Modes as five toggle pills (replaces CSV input). */
+.sr-ct-modes {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--background-modifier-border);
+  border-radius: 6px;
+  flex: 0 0 auto;
+}
+.sr-ct-mode-pill {
+  appearance: none;
+  font-family: var(--font-monospace);
+  font-size: 11px;
+  font-weight: 600;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: var(--background-secondary);
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.sr-ct-mode-pill:hover { color: var(--text-normal); }
+.sr-ct-mode-pill.is-on {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
 .sr-ct-del {
   background: transparent;
   border: 1px solid var(--background-modifier-border);
@@ -397,51 +472,237 @@
 .sr-ct-actions { display: flex; gap: 8px; margin-top: 12px; }
 
 /* === Domain profiles settings editor === */
-.sr-domains { margin-top: 8px; display: flex; flex-direction: column; gap: 10px; }
+.sr-domains { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
 
 .sr-domain-card {
   border: 1px solid var(--background-modifier-border);
   border-radius: 8px;
-  padding: 10px 12px;
   background: var(--background-secondary);
+  overflow: hidden;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.sr-domain-card:hover { border-color: var(--background-modifier-border-hover); }
+.sr-domain-card.is-open {
+  border-color: var(--background-modifier-border-focus, var(--interactive-accent));
+  box-shadow: 0 1px 0 var(--background-modifier-border) inset;
+}
+.sr-domain-card.is-disabled .sr-domain-summary > *:not(.sr-domain-enabled):not(.sr-domain-del) {
+  opacity: 0.5;
 }
 
-.sr-domain-header {
+/* Summary chip — clickable strip that toggles expansion. */
+.sr-domain-summary {
   display: flex;
-  gap: 8px;
   align-items: center;
-  flex-wrap: wrap;
+  gap: 10px;
+  padding: 8px 10px;
+  cursor: pointer;
+  user-select: none;
+}
+.sr-domain-summary:hover { background: var(--background-modifier-hover); }
+
+.sr-domain-caret {
+  font-size: 11px;
+  color: var(--text-muted);
+  width: 14px;
+  text-align: center;
+  flex: 0 0 14px;
 }
 
-.sr-domain-header input[type="text"],
-.sr-domain-header select,
-.sr-domain-sub input[type="text"] {
+.sr-domain-enabled { margin: 0; flex: 0 0 auto; cursor: pointer; }
+
+/* Slug — inline monospace, no chrome. Lets the eye land on the name itself. */
+.sr-domain-slug {
+  font-family: var(--font-monospace);
+  font-weight: 600;
+  font-size: 12.5px;
+  color: var(--text-normal);
+  flex: 0 0 auto;
+  letter-spacing: -0.01em;
+}
+
+.sr-domain-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Meta line: dot-prefix merge tag + muted suffix text, all in one row. */
+.sr-domain-meta-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.sr-domain-merge-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.sr-domain-merge-text {
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+.sr-domain-merge-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--interactive-accent);
+}
+/* Same hue, different opacities. Configuration choice, not a warning. */
+.sr-merge-add     { opacity: 1; }
+.sr-merge-subset  { opacity: 0.6; }
+.sr-merge-replace { opacity: 0.3; box-shadow: inset 0 0 0 1px var(--interactive-accent); background: transparent; }
+.sr-domain-meta-sep { color: var(--text-faint); font-weight: 400; }
+.sr-domain-meta-text { color: var(--text-muted); }
+
+.sr-domain-del { flex: 0 0 auto; opacity: 0; transition: opacity 120ms ease; }
+.sr-domain-summary:hover .sr-domain-del,
+.sr-domain-card.is-open .sr-domain-del { opacity: 1; }
+
+/* Expanded body */
+.sr-domain-body {
+  padding: 12px 14px 14px;
+  border-top: 1px solid var(--background-modifier-border);
+  background: var(--background-primary-alt, var(--background-primary));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sr-domain-meta {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(150px, 2fr) auto auto;
+  gap: 10px 12px;
+  align-items: end;
+}
+@media (max-width: 700px) {
+  .sr-domain-meta { grid-template-columns: 1fr 1fr; }
+}
+
+.sr-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.sr-field-row { flex-direction: row; align-items: center; gap: 10px; }
+.sr-field-grow { flex: 1 1 auto; }
+
+.sr-field-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.sr-field-input {
   font-size: 12px;
-  padding: 4px 8px;
+  padding: 6px 9px;
   border: 1px solid var(--background-modifier-border);
   background: var(--background-primary);
   color: var(--text-normal);
-  border-radius: 4px;
+  border-radius: 6px;
+  min-width: 0;
 }
+.sr-field-input:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 25%, transparent);
+}
+.sr-field-slug { font-family: var(--font-monospace); font-weight: 600; }
+.sr-field-mode { width: 5rem; text-align: center; font-variant-numeric: tabular-nums; }
 
-/* Slug input — monospace, since it matches `semantic_domain` in frontmatter. */
-.sr-domain-header input[type="text"]:first-of-type {
-  font-family: var(--font-monospace);
+/* Segmented control for merge mode */
+.sr-seg {
+  display: inline-flex;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--background-primary);
+  height: 30px;
+}
+.sr-seg-btn {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 0 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-right: 1px solid var(--background-modifier-border);
+  transition: background 120ms ease, color 120ms ease;
+}
+.sr-seg-btn:last-child { border-right: 0; }
+.sr-seg-btn:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
+.sr-seg-btn.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
   font-weight: 600;
 }
 
-.sr-domain-header input[type="checkbox"] { margin: 0; }
-
-.sr-domain-sub {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  margin-top: 8px;
-  font-size: 12px;
+.sr-domain-tags-heading {
+  font-size: 11px;
+  font-weight: 500;
   color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
 }
 
-.sr-domain-card .setting-item-description { margin: 10px 0 4px; }
+/* Tag-list column headers (used inside domain bodies) */
+.sr-ct-head {
+  padding: 2px 0 6px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: 4px;
+}
+.sr-ct-h {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  padding: 0 6px;
+}
+.sr-ct-colors-h { width: 48px; flex: 0 0 48px; }
+.sr-ct-del-h { width: 24px; flex: 0 0 24px; }
+/* Header cell for the modes column matches the modes-pill cluster width. */
+.sr-ct-head .sr-ct-modes { background: transparent; padding: 0; }
+
+/* Generic pill picker (used for `keepBuiltins` in subset merge mode). */
+.sr-field-sublabel { font-size: 11px; color: var(--text-faint); margin-bottom: 6px; }
+.sr-pill-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-primary);
+}
+.sr-pill {
+  appearance: none;
+  font-family: var(--font-monospace);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.sr-pill:hover { color: var(--text-normal); border-color: var(--text-muted); }
+.sr-pill.is-on {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-color: var(--interactive-accent);
+}
 
 /* === Search modal === */
 .sr-search-row { display: flex; gap: 8px; align-items: baseline; }

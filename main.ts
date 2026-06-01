@@ -44,7 +44,7 @@ import {
 import { maybeInjectDaily } from './src/integrations/daily-note';
 import { DEFAULT_MCP_OPTIONS, McpServer, McpServerOptions } from './src/mcp/server';
 import { buildMcpContext } from './src/mcp/tools';
-import { FAMILIES, MODES } from './src/constants';
+import { BUILTIN_TAGS, FAMILIES, MODES } from './src/constants';
 import {
   CustomTagDef,
   applyCustomTags,
@@ -1072,13 +1072,25 @@ class SemanticReadingSettingTab extends PluginSettingTab {
     parent: HTMLElement,
     getList: () => CustomTagDef[],
     setList: (next: CustomTagDef[]) => void,
-    opts: { addLabel?: string; showImport?: boolean } = {},
+    opts: { addLabel?: string; showImport?: boolean; showHeaders?: boolean } = {},
   ): void {
     const wrap = parent.createDiv({ cls: 'sr-custom-tags' });
 
     const draw = () => {
       wrap.empty();
       const list = getList();
+
+      if (opts.showHeaders && list.length > 0) {
+        const head = wrap.createDiv({ cls: 'sr-ct-row sr-ct-head' });
+        head.createSpan({ cls: 'sr-ct-sigil sr-ct-h', text: 'Sigil' });
+        head.createSpan({ cls: 'sr-ct-name sr-ct-h', text: 'Name' });
+        head.createSpan({ cls: 'sr-ct-family sr-ct-h', text: 'Family' });
+        head.createSpan({ cls: 'sr-ct-desc sr-ct-h', text: 'Description' });
+        head.createSpan({ cls: 'sr-ct-colors-h sr-ct-h', text: 'Colors' });
+        head.createSpan({ cls: 'sr-ct-key sr-ct-h', text: 'Key' });
+        head.createSpan({ cls: 'sr-ct-modes sr-ct-h', text: 'Modes' });
+        head.createSpan({ cls: 'sr-ct-del-h sr-ct-h' });
+      }
 
       list.forEach((t, idx) => {
         const row = wrap.createDiv({ cls: 'sr-ct-row' });
@@ -1103,27 +1115,41 @@ class SemanticReadingSettingTab extends PluginSettingTab {
         desc.placeholder = 'description';
         desc.onchange = () => commit({ ...t, desc: desc.value }, idx);
 
-        const light = row.createEl('input', { type: 'color', cls: 'sr-ct-color', value: t.light || '#6c6c6c' });
+        // Split-swatch color chip. Left half = light theme, right half = dark.
+        // Click either half to open its native picker.
+        const swatch = row.createDiv({ cls: 'sr-ct-swatch', attr: { title: 'Click left half to set light-theme color · right half for dark-theme color' } });
+        const light = swatch.createEl('input', { type: 'color', cls: 'sr-ct-swatch-input sr-ct-swatch-light', value: t.light || '#6c6c6c' });
         light.title = 'Light-theme color';
         light.onchange = () => commit({ ...t, light: light.value }, idx);
-
-        const dark = row.createEl('input', { type: 'color', cls: 'sr-ct-color', value: t.dark || '#bdbdbd' });
+        const dark = swatch.createEl('input', { type: 'color', cls: 'sr-ct-swatch-input sr-ct-swatch-dark', value: t.dark || '#bdbdbd' });
         dark.title = 'Dark-theme color';
         dark.onchange = () => commit({ ...t, dark: dark.value }, idx);
 
+        // Keycap-styled single-letter shortcut.
         const key = row.createEl('input', { type: 'text', cls: 'sr-ct-key', value: t.keyBinding || '' });
-        key.placeholder = 'k';
+        key.placeholder = '·';
         key.maxLength = 1;
         key.title = 'Single-letter keyboard shortcut (skipped if conflicts with built-in)';
         key.onchange = () => commit({ ...t, keyBinding: key.value || undefined }, idx);
 
-        const modesEl = row.createEl('input', { type: 'text', cls: 'sr-ct-modes', value: (t.inModes && t.inModes.length ? t.inModes : [1, 2, 3, 4, 5]).join(',') });
-        modesEl.placeholder = '1,2,3,4,5';
-        modesEl.title = 'Reading modes this tag appears in (comma-separated 1–5)';
-        modesEl.onchange = () => {
-          const parsed = modesEl.value.split(',').map(s => Number(s.trim())).filter(n => n >= 1 && n <= 5);
-          commit({ ...t, inModes: parsed.length ? parsed : undefined }, idx);
-        };
+        // Modes as 5 toggle pills. At least one must remain selected — if user
+        // clears all, we fall back to "all modes" (undefined inModes).
+        const modesEl = row.createDiv({ cls: 'sr-ct-modes' });
+        const currentModes = new Set(t.inModes && t.inModes.length ? t.inModes : [1, 2, 3, 4, 5]);
+        ([1, 2, 3, 4, 5] as const).forEach(m => {
+          const pill = modesEl.createEl('button', {
+            cls: `sr-ct-mode-pill${currentModes.has(m) ? ' is-on' : ''}`,
+            text: String(m),
+          });
+          pill.title = `Mode ${m} — ${MODES[m]?.name ?? ''}`;
+          pill.onclick = (e) => {
+            e.preventDefault();
+            if (currentModes.has(m)) currentModes.delete(m); else currentModes.add(m);
+            const next = [1, 2, 3, 4, 5].filter(n => currentModes.has(n));
+            commit({ ...t, inModes: next.length === 5 || next.length === 0 ? undefined : next }, idx);
+            draw();
+          };
+        });
 
         const del = row.createEl('button', { cls: 'sr-ct-del', text: '×' });
         del.title = 'Remove this tag';
@@ -1176,92 +1202,166 @@ class SemanticReadingSettingTab extends PluginSettingTab {
 
   private renderDomainsEditor(parent: HTMLElement): void {
     const wrap = parent.createDiv({ cls: 'sr-domains' });
+    // Track expanded cards by name. Newly added profiles auto-expand.
+    const expanded = new Set<string>();
 
     const draw = () => {
       wrap.empty();
       const list = this.plugin.settings.domains;
 
       list.forEach((d, idx) => {
-        const card = wrap.createDiv({ cls: 'sr-domain-card' });
+        const isOpen = expanded.has(d.name);
+        const card = wrap.createDiv({ cls: `sr-domain-card${isOpen ? ' is-open' : ''}` });
 
-        const header = card.createDiv({ cls: 'sr-domain-header' });
+        // -- Summary chip (always visible) --
+        const summary = card.createDiv({ cls: 'sr-domain-summary' });
 
-        const enabled = header.createEl('input', { type: 'checkbox' });
+        const caret = summary.createSpan({ cls: 'sr-domain-caret', text: isOpen ? '▾' : '▸' });
+        caret.setAttr('role', 'button');
+        caret.setAttr('aria-label', isOpen ? 'Collapse' : 'Expand');
+
+        const enabled = summary.createEl('input', { type: 'checkbox', cls: 'sr-domain-enabled' });
         enabled.checked = !d.disabled;
         enabled.title = 'Enabled (uncheck to ignore this profile)';
+        enabled.onclick = (e) => e.stopPropagation();
         enabled.onchange = async () => {
           list[idx] = { ...d, disabled: !enabled.checked };
           await this.plugin.saveSettings();
+          // Reflect dim state without re-render.
+          card.toggleClass('is-disabled', !enabled.checked);
         };
+        card.toggleClass('is-disabled', !!d.disabled);
 
-        const nameEl = header.createEl('input', { type: 'text', value: d.name });
-        nameEl.placeholder = 'slug (matches semantic_domain)';
-        nameEl.style.flex = '0 0 12rem';
-        nameEl.onchange = async () => {
-          list[idx] = { ...d, name: nameEl.value.trim() };
-          await this.plugin.saveSettings();
-        };
+        summary.createSpan({ cls: 'sr-domain-slug', text: d.name || '(unnamed)' });
+        summary.createSpan({ cls: 'sr-domain-label', text: d.label || '' });
 
-        const labelEl = header.createEl('input', { type: 'text', value: d.label });
-        labelEl.placeholder = 'human label';
-        labelEl.style.flex = '1';
-        labelEl.onchange = async () => {
-          list[idx] = { ...d, label: labelEl.value };
-          await this.plugin.saveSettings();
-        };
+        // Meta: single-line, muted suffix text. Merge mode gets a small dot
+        // (color-coded by weight, not by traffic-light semantics).
+        const metaLine = summary.createSpan({ cls: 'sr-domain-meta-line' });
+        const mergeTag = metaLine.createSpan({ cls: 'sr-domain-merge-tag' });
+        mergeTag.createSpan({ cls: `sr-domain-merge-dot sr-merge-${d.mergeMode}` });
+        mergeTag.createSpan({ cls: 'sr-domain-merge-text', text: d.mergeMode });
+        const tagCount = (d.tags || []).length;
+        metaLine.createSpan({ cls: 'sr-domain-meta-sep', text: '·' });
+        metaLine.createSpan({ cls: 'sr-domain-meta-text', text: `${tagCount} ${tagCount === 1 ? 'tag' : 'tags'}` });
+        if (d.defaultMode) {
+          metaLine.createSpan({ cls: 'sr-domain-meta-sep', text: '·' });
+          metaLine.createSpan({ cls: 'sr-domain-meta-text', text: `mode ${d.defaultMode}` });
+        }
 
-        const merge = header.createEl('select');
-        (['add', 'subset', 'replace'] as const).forEach(m => {
-          const opt = merge.createEl('option', { text: m, value: m });
-          if (m === d.mergeMode) opt.selected = true;
-        });
-        merge.title = 'Merge mode: how this profile interacts with built-in tags';
-        merge.onchange = async () => {
-          list[idx] = { ...d, mergeMode: merge.value as DomainProfile['mergeMode'] };
-          await this.plugin.saveSettings();
-          draw();
-        };
-
-        const del = header.createEl('button', { cls: 'sr-ct-del', text: '×' });
+        const del = summary.createEl('button', { cls: 'sr-ct-del sr-domain-del', text: '×' });
         del.title = 'Delete this domain profile';
-        del.onclick = async () => {
+        del.onclick = async (e) => {
+          e.stopPropagation();
+          expanded.delete(d.name);
           this.plugin.settings.domains = list.filter((_, i) => i !== idx);
           await this.plugin.saveSettings();
           draw();
         };
 
-        if (d.mergeMode === 'subset') {
-          const sub = card.createDiv({ cls: 'sr-domain-sub' });
-          sub.createSpan({ text: 'Keep built-ins: ' });
-          const keep = sub.createEl('input', { type: 'text', value: (d.keepBuiltins || []).join(', ') });
-          keep.placeholder = 'Def, Q, R';
-          keep.style.width = '100%';
-          keep.onchange = async () => {
-            const parsed = keep.value.split(',').map(s => s.trim()).filter(Boolean);
-            list[idx] = { ...d, keepBuiltins: parsed };
-            await this.plugin.saveSettings();
-          };
-        }
+        // Click anywhere on the summary (outside interactive controls) toggles.
+        summary.onclick = (e) => {
+          const t = e.target as HTMLElement;
+          if (t.closest('input, button, select')) return;
+          if (isOpen) expanded.delete(d.name); else expanded.add(d.name);
+          draw();
+        };
 
-        const modeRow = card.createDiv({ cls: 'sr-domain-sub' });
-        modeRow.createSpan({ text: 'Default reading mode (optional): ' });
-        const modeEl = modeRow.createEl('input', { type: 'text', value: d.defaultMode ? String(d.defaultMode) : '' });
+        if (!isOpen) return;
+
+        // -- Expanded body --
+        const body = card.createDiv({ cls: 'sr-domain-body' });
+
+        const meta = body.createDiv({ cls: 'sr-domain-meta' });
+
+        const slugField = meta.createDiv({ cls: 'sr-field' });
+        slugField.createEl('label', { text: 'Slug', cls: 'sr-field-label' });
+        const nameEl = slugField.createEl('input', { type: 'text', cls: 'sr-field-input sr-field-slug', value: d.name });
+        nameEl.placeholder = 'semantic_domain';
+        nameEl.onchange = async () => {
+          const prev = d.name;
+          const next = nameEl.value.trim();
+          list[idx] = { ...d, name: next };
+          if (expanded.has(prev)) { expanded.delete(prev); expanded.add(next); }
+          await this.plugin.saveSettings();
+          draw();
+        };
+
+        const labelField = meta.createDiv({ cls: 'sr-field sr-field-grow' });
+        labelField.createEl('label', { text: 'Label', cls: 'sr-field-label' });
+        const labelEl = labelField.createEl('input', { type: 'text', cls: 'sr-field-input', value: d.label });
+        labelEl.placeholder = 'human label';
+        labelEl.onchange = async () => {
+          list[idx] = { ...d, label: labelEl.value };
+          await this.plugin.saveSettings();
+          draw();
+        };
+
+        const mergeField = meta.createDiv({ cls: 'sr-field' });
+        mergeField.createEl('label', { text: 'Merge mode', cls: 'sr-field-label' });
+        const seg = mergeField.createDiv({ cls: 'sr-seg' });
+        const mergeModes: DomainProfile['mergeMode'][] = ['add', 'subset', 'replace'];
+        const mergeTitles: Record<DomainProfile['mergeMode'], string> = {
+          add: 'add — built-ins + profile tags',
+          subset: 'subset — only listed built-ins + profile tags',
+          replace: 'replace — only profile tags',
+        };
+        mergeModes.forEach(m => {
+          const btn = seg.createEl('button', { cls: `sr-seg-btn${m === d.mergeMode ? ' is-active' : ''}`, text: m });
+          btn.title = mergeTitles[m];
+          btn.onclick = async (e) => {
+            e.preventDefault();
+            if (m === d.mergeMode) return;
+            list[idx] = { ...d, mergeMode: m };
+            await this.plugin.saveSettings();
+            draw();
+          };
+        });
+
+        const modeField = meta.createDiv({ cls: 'sr-field' });
+        modeField.createEl('label', { text: 'Default reading mode', cls: 'sr-field-label' });
+        const modeEl = modeField.createEl('input', { type: 'text', cls: 'sr-field-input sr-field-mode', value: d.defaultMode ? String(d.defaultMode) : '' });
         modeEl.placeholder = '1–5';
-        modeEl.style.width = '4rem';
+        modeEl.title = 'Optional. When set, opening a note in this domain switches to this reading mode.';
         modeEl.onchange = async () => {
           const n = parseInt(modeEl.value, 10);
           const next = n >= 1 && n <= 5 ? n : undefined;
           list[idx] = { ...d, defaultMode: next };
           await this.plugin.saveSettings();
+          draw();
         };
 
-        const tagsLabel = card.createEl('p', { text: 'Tags', cls: 'setting-item-description' });
-        tagsLabel.style.marginTop = '0.5rem';
+        if (d.mergeMode === 'subset') {
+          const keepField = body.createDiv({ cls: 'sr-field' });
+          keepField.createEl('label', { text: 'Keep built-ins', cls: 'sr-field-label' });
+          const sub = keepField.createEl('div', { cls: 'sr-field-sublabel', text: 'Click sigils to include them alongside this profile\'s tags.' });
+          sub.title = 'Built-in tags that survive subset mode.';
+          const picker = keepField.createDiv({ cls: 'sr-pill-picker' });
+          const kept = new Set(d.keepBuiltins || []);
+          Object.entries(BUILTIN_TAGS).forEach(([sigil, def]) => {
+            const pill = picker.createEl('button', {
+              cls: `sr-pill${kept.has(sigil) ? ' is-on' : ''}`,
+              text: sigil,
+            });
+            pill.title = `${def.name} — ${def.desc}`;
+            pill.onclick = async (e) => {
+              e.preventDefault();
+              if (kept.has(sigil)) kept.delete(sigil); else kept.add(sigil);
+              const next = Object.keys(BUILTIN_TAGS).filter(s => kept.has(s));
+              list[idx] = { ...d, keepBuiltins: next };
+              await this.plugin.saveSettings();
+              draw();
+            };
+          });
+        }
+
+        const tagsSection = body.createDiv({ cls: 'sr-domain-tags' });
+        tagsSection.createEl('div', { cls: 'sr-domain-tags-heading', text: 'Tags' });
         this.renderTagListEditor(
-          card,
+          tagsSection,
           () => list[idx].tags,
           (next) => { list[idx] = { ...list[idx], tags: next }; },
-          { addLabel: '+ Add tag to this domain' },
+          { addLabel: '+ Add tag', showHeaders: true },
         );
       });
 
@@ -1272,6 +1372,7 @@ class SemanticReadingSettingTab extends PluginSettingTab {
         let n = list.length + 1;
         let name = `domain${n}`;
         while (taken.has(name)) { n++; name = `domain${n}`; }
+        expanded.add(name);
         this.plugin.settings.domains = [...list, {
           name,
           label: 'New domain',
@@ -1284,6 +1385,7 @@ class SemanticReadingSettingTab extends PluginSettingTab {
       const resetBtn = actions.createEl('button', { text: 'Reset to presets' });
       resetBtn.title = 'Replace all domain profiles with the bundled presets. This overwrites your edits.';
       resetBtn.onclick = async () => {
+        expanded.clear();
         this.plugin.settings.domains = JSON.parse(JSON.stringify(DOMAIN_PRESETS));
         await this.plugin.saveSettings();
         draw();
