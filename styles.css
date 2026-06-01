@@ -396,6 +396,53 @@
 .sr-ct-del:hover { color: var(--text-error); border-color: var(--text-error); }
 .sr-ct-actions { display: flex; gap: 8px; margin-top: 12px; }
 
+/* === Domain profiles settings editor === */
+.sr-domains { margin-top: 8px; display: flex; flex-direction: column; gap: 10px; }
+
+.sr-domain-card {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--background-secondary);
+}
+
+.sr-domain-header {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.sr-domain-header input[type="text"],
+.sr-domain-header select,
+.sr-domain-sub input[type="text"] {
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+  border-radius: 4px;
+}
+
+/* Slug input — monospace, since it matches `semantic_domain` in frontmatter. */
+.sr-domain-header input[type="text"]:first-of-type {
+  font-family: var(--font-monospace);
+  font-weight: 600;
+}
+
+.sr-domain-header input[type="checkbox"] { margin: 0; }
+
+.sr-domain-sub {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.sr-domain-card .setting-item-description { margin: 10px 0 4px; }
+
 /* === Search modal === */
 .sr-search-row { display: flex; gap: 8px; align-items: baseline; }
 .sr-search-text { flex: 1; }
