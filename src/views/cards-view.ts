@@ -135,7 +135,7 @@ export class CardsView extends ItemView {
       return;
     }
     const byFam: Record<FamilyName, typeof extracts> = {
-      Anchor: [], Meaning: [], Structure: [], Execution: [],
+      Anchor: [], Meaning: [], Structure: [], Execution: [], Language: [],
     };
     extracts.forEach(e => {
       const fam = TAGS[e.tag]?.family;

@@ -1,7 +1,7 @@
 import { VaultIndex, Mention } from '../graph/vault-index';
-import { TAGS } from '../constants';
+import { TAGS, LANGUAGE_CARD_TAGS } from '../constants';
 
-export type CardKind = 'cloze' | 'question' | 'action' | 'relation';
+export type CardKind = 'cloze' | 'question' | 'action' | 'relation' | 'l2' | 'pattern';
 
 export interface Card {
   id: string;             // stable hash
@@ -11,6 +11,11 @@ export interface Card {
   front: string;
   back: string;
   context?: string;
+  // Populated by api.ts `cards.due({minCoverage})` for L2/Pattern cards only —
+  // describes how much of the surrounding paragraph the reader can already parse.
+  coverage?: number;        // 0..1, fraction of paragraph tokens that map to a seen Def
+  missingTokens?: string[]; // tokens not yet seen (cap'd at ~10 for payload size)
+  paragraphText?: string;   // surrounding paragraph plain text (for caller context)
 }
 
 export interface CardBuilderOptions {
@@ -43,7 +48,7 @@ export function buildCards(index: VaultIndex, opts: Partial<CardBuilderOptions> 
     }
   }
 
-  // Q cards.
+  // Q cards + language cards (L2, Pattern) + other tag-specific cards.
   for (const tag of o.enabledTags) {
     if (tag === 'Def') continue; // already handled
     const list = index.byTag[tag] || [];
@@ -53,6 +58,12 @@ export function buildCards(index: VaultIndex, opts: Partial<CardBuilderOptions> 
   }
 
   return cards;
+}
+
+// Build only the language-family cards. Used by cards.due({language}) so the
+// caller doesn't have to spell out the L2/Pattern tag set every time.
+export function buildLanguageCards(index: VaultIndex): Card[] {
+  return buildCards(index, { enabledTags: new Set<string>(LANGUAGE_CARD_TAGS) });
 }
 
 function buildOneCard(tag: string, m: Mention): Card {
@@ -85,6 +96,28 @@ function buildOneCard(tag: string, m: Mention): Card {
         source: m,
         front: `Recall this relation: ${m.text}`,
         back: m.text,
+      };
+    case 'L2':
+      // Back uses the Gloss attached as `note=` when present; otherwise the user
+      // hasn't recorded the meaning yet and the card prompts them to add one.
+      return {
+        id: cardId(m, tag),
+        kind: 'l2',
+        tag,
+        source: m,
+        front: m.text,
+        back: m.note ? m.note : '(no gloss yet — open the source note and add one)',
+        context: m.text,
+      };
+    case 'Pattern':
+      return {
+        id: cardId(m, tag),
+        kind: 'pattern',
+        tag,
+        source: m,
+        front: `Pattern: ${m.text}`,
+        back: m.note || m.text,
+        context: m.text,
       };
     default:
       return {

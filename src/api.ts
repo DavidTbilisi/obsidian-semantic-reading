@@ -16,7 +16,17 @@ import type { ConceptEntry, Mention, VaultIndex } from './graph/vault-index';
 import { buildCards, Card } from './study/card-builder';
 import { isDue, newCard, CardState } from './study/fsrs';
 import type { DomainProfile } from './domains';
-import type { TagDef } from './constants';
+import { LANGUAGE_CARD_TAGS, type TagDef } from './constants';
+
+// Options for cards.due(). All fields optional and backward-compatible —
+// calling due() with no args preserves the prior `Def + Q, all languages,
+// no coverage filter` behavior.
+export interface DueOptions {
+  /** ISO code matching `language:` frontmatter. When set, only that language's L2 cards are considered. */
+  language?: string;
+  /** Krashen i+1 threshold (0..1, default 0.95). Cards whose paragraph context falls below are filtered out. Only applies when `language` is set. */
+  minCoverage?: number;
+}
 
 export interface SemanticReadingAPI {
   /** Plugin version (mirrors manifest.json). */
@@ -53,8 +63,13 @@ export interface SemanticReadingAPI {
   readonly cards: {
     /** All cards derivable from the current index (per the current enabled-tags policy). */
     all(): Card[];
-    /** Cards due now. */
-    due(): Card[];
+    /**
+     * Cards due now. Without args: Def + Q across the vault (legacy behavior).
+     * With `{ language }`: also includes L2 + Pattern cards from notes tagged with
+     * that language. With `{ language, minCoverage }`: applies the Krashen i+1
+     * coverage filter to L2/Pattern cards (default threshold 0.95).
+     */
+    due(opts?: DueOptions): Card[];
     /** Persisted FSRS state for a card id, if any. */
     state(cardId: string): CardState | undefined;
   };
@@ -123,10 +138,30 @@ export function createApi(plugin: SemanticReadingPlugin, version: string): Seman
       all() {
         return buildCards(indexer().get(), { enabledTags: new Set(['Def', 'Q']) });
       },
-      due() {
+      due(opts?: DueOptions) {
+        const idx = indexer().get();
         const now = Date.now();
-        return buildCards(indexer().get(), { enabledTags: new Set(['Def', 'Q']) })
-          .filter(c => isDue(study().states[c.id] || newCard(), now));
+        const states = study().states;
+        // When a language filter is set, also surface L2/Pattern cards.
+        const enabledTags = opts?.language
+          ? new Set<string>(['Def', 'Q', ...LANGUAGE_CARD_TAGS])
+          : new Set<string>(['Def', 'Q']);
+        let cards = buildCards(idx, { enabledTags })
+          .filter(c => isDue(states[c.id] || newCard(), now));
+        if (opts?.language) {
+          // Restrict to cards whose source note opted into this language. Def/Q
+          // cards in non-L2 notes are dropped — the caller asked for a language
+          // session, not a mixed queue.
+          cards = cards.filter(c => c.source.language === opts.language);
+        }
+        if (opts?.language && opts.minCoverage !== undefined) {
+          const minCov = opts.minCoverage;
+          const seenDefs = computeSeenDefs(idx, opts.language);
+          cards = cards
+            .map(c => decorateCoverage(c, idx, seenDefs))
+            .filter(c => (c.coverage ?? 0) >= minCov);
+        }
+        return cards;
       },
       state(cardId) {
         return study().states[cardId];
@@ -162,4 +197,66 @@ function readDomainName(fm: Record<string, unknown> | undefined): string | null 
   if (!fm) return null;
   const d = (fm as Record<string, unknown>).semantic_domain;
   return typeof d === 'string' && d.trim() ? d.trim() : null;
+}
+
+// === i+1 coverage support (Krashen comprehensible-input rule) ===
+//
+// `cards.due({language, minCoverage})` filters L2/Pattern cards by how much of
+// their surrounding paragraph the reader can already parse. A card whose
+// paragraph is mostly unknown vocabulary is below i+1 and should not surface —
+// it would force learning multiple new items at once.
+
+const TOKEN_SEP = /[\s\p{P}]+/u; // whitespace + Unicode punctuation
+const MAX_MISSING_TOKENS = 10;
+
+// Tokenize a paragraph into canonicalized word forms. Empty strings filtered.
+function tokenize(paragraph: string): string[] {
+  return paragraph
+    .split(TOKEN_SEP)
+    .map(t => canonicalize(t))
+    .filter(Boolean);
+}
+
+// "Seen Def" predicate for i+1 coverage: any concept with at least one
+// recorded mention counts as known. Matches Krashen's exposure model — the
+// bar is "you've encountered this morpheme in context," not retention. The
+// filter becomes more permissive as the reading corpus grows, which mirrors
+// the wiki's frequency-governed-encoding rule. Cross-language leakage is
+// accepted as a known limitation for V1 (a word tagged in one language
+// counts toward coverage in any language).
+function computeSeenDefs(idx: VaultIndex, language: string): Set<string> {
+  void language; // reserved for future per-language predicates
+  const seen = new Set<string>();
+  for (const canonical of Object.keys(idx.concepts)) {
+    if (idx.concepts[canonical].mentions.length > 0) seen.add(canonical);
+  }
+  return seen;
+}
+
+// Decorate a card with coverage data: ratio of paragraph tokens that map to a
+// seen Def, plus the list of unknown tokens (capped). Cards from notes with
+// no cached paragraph text get coverage=0 (effectively filtered out at any
+// non-zero threshold).
+function decorateCoverage(card: Card, idx: VaultIndex, seen: Set<string>): Card {
+  const paragraphs = idx.languageParagraphs[card.source.notePath];
+  const paragraph = paragraphs?.[card.source.paraIndex];
+  if (!paragraph) {
+    return { ...card, coverage: 0, missingTokens: [], paragraphText: '' };
+  }
+  const tokens = tokenize(paragraph);
+  if (!tokens.length) {
+    return { ...card, coverage: 1, missingTokens: [], paragraphText: paragraph };
+  }
+  const missing: string[] = [];
+  let known = 0;
+  for (const t of tokens) {
+    if (seen.has(t)) known++;
+    else if (missing.length < MAX_MISSING_TOKENS) missing.push(t);
+  }
+  return {
+    ...card,
+    coverage: known / tokens.length,
+    missingTokens: missing,
+    paragraphText: paragraph,
+  };
 }

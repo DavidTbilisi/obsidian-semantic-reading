@@ -1,4 +1,4 @@
-export type FamilyName = 'Anchor' | 'Meaning' | 'Structure' | 'Execution';
+export type FamilyName = 'Anchor' | 'Meaning' | 'Structure' | 'Execution' | 'Language';
 export type RouteName = 'NEDF' | 'CAST' | 'SPEAR' | 'HEART' | 'ORACLE' | 'GRACE' | '*';
 
 export interface TagDef {
@@ -29,6 +29,17 @@ export const BUILTIN_TAGS: Record<string, TagDef> = {
   Assump: { name: 'Assumption',    family: 'Structure', desc: 'unstated requirement',                        route: 'CAST'  },
   A:      { name: 'Action',        family: 'Execution', desc: 'what to do (method / procedure step)',        route: 'SPEAR' },
   M:      { name: 'Measure',       family: 'Execution', desc: 'how to know it worked (signal / prediction)', route: 'ORACLE' },
+  // Language family — vocabulary atoms (L2/Gloss/Sound/Pattern) and listening-miss
+  // signals (Miss*). Surfaced in the AI tag-suggestion prompt only when a note
+  // carries `language: <code>` frontmatter. See src/ai/prompts.ts.
+  L2:      { name: 'L2 span',        family: 'Language', desc: 'target-language word or phrase (card anchor)', route: 'NEDF'   },
+  Gloss:   { name: 'Gloss',          family: 'Language', desc: 'L1 meaning of an L2 span',                     route: 'NEDF', parent: 'L2' },
+  Pron:    { name: 'Pronunciation',  family: 'Language', desc: 'pronunciation / IPA for an L2 span',           route: 'NEDF', parent: 'L2' },
+  Pattern: { name: 'Pattern',        family: 'Language', desc: 'reusable grammar pattern instance',            route: 'NEDF'   },
+  MissSnd: { name: 'Miss — sound',   family: 'Language', desc: 'heard but could not decode',                   route: 'ORACLE' },
+  MissWrd: { name: 'Miss — word',    family: 'Language', desc: 'decoded but did not know',                     route: 'ORACLE' },
+  MissGrm: { name: 'Miss — grammar', family: 'Language', desc: 'knew words but missed structure',              route: 'ORACLE' },
+  MissPrg: { name: 'Miss — pragma',  family: 'Language', desc: 'decoded literal but missed intent',            route: 'ORACLE' },
 };
 
 export const FRAMEWORKS: Record<string, { name: string; desc: string }> = {
@@ -49,13 +60,21 @@ export interface ModeDef {
 
 export const BUILTIN_MODES: Record<number, ModeDef> = {
   1: { name: 'Easy',         desc: 'stop reading passively, surface obvious anchors',  tags: ['Def','Ex','A','Q','N','D','P'] },
-  2: { name: 'Functional',   desc: 'separate information by role, not just content',   tags: ['Def','Ex','R','Ev','A','Q','M'] },
-  3: { name: 'Structural',   desc: 'make local structure visible',                     tags: ['Def','Mn','Ex','An','R','Ev','A','Q','M','C','B','L'] },
-  4: { name: 'Systems',      desc: 'perceive the structure the author does not state', tags: ['Def','Mn','Ex','An','R','Ev','A','Q','M','C','B','L','Assump','X','Opp','T'] },
-  5: { name: 'Regenerative', desc: 'reconstruct the chapter from structure',           tags: ['Def','Mn','Ex','An','R','Ev','A','Q','M','C','B','L','Assump','X','Opp','T','N','D','P'] },
+  2: { name: 'Functional',   desc: 'separate information by role, not just content',   tags: ['Def','Ex','R','Ev','A','Q','M','L2','Gloss'] },
+  3: { name: 'Structural',   desc: 'make local structure visible',                     tags: ['Def','Mn','Ex','An','R','Ev','A','Q','M','C','B','L','L2','Gloss','Pron','Pattern'] },
+  4: { name: 'Systems',      desc: 'perceive the structure the author does not state', tags: ['Def','Mn','Ex','An','R','Ev','A','Q','M','C','B','L','Assump','X','Opp','T','L2','Gloss','Pron','Pattern','MissSnd','MissWrd','MissGrm','MissPrg'] },
+  5: { name: 'Regenerative', desc: 'reconstruct the chapter from structure',           tags: ['Def','Mn','Ex','An','R','Ev','A','Q','M','C','B','L','Assump','X','Opp','T','N','D','P','L2','Gloss','Pron','Pattern','MissSnd','MissWrd','MissGrm','MissPrg'] },
 };
 
-export const FAMILIES: FamilyName[] = ['Anchor', 'Meaning', 'Structure', 'Execution'];
+export const FAMILIES: FamilyName[] = ['Anchor', 'Meaning', 'Structure', 'Execution', 'Language'];
+
+// Language-family sigil sets. Card-builder reads LANGUAGE_CARD_TAGS to decide
+// which L2 sigils anchor a flashcard; AI prompt + Miss-histogram emission read
+// LANGUAGE_TAGS / LANGUAGE_MISS_TAGS. Kept here so all language-aware code
+// shares one source of truth.
+export const LANGUAGE_TAGS = ['L2', 'Gloss', 'Pron', 'Pattern', 'MissSnd', 'MissWrd', 'MissGrm', 'MissPrg'] as const;
+export const LANGUAGE_CARD_TAGS = new Set<string>(['L2', 'Pattern']);
+export const LANGUAGE_MISS_TAGS = ['MissSnd', 'MissWrd', 'MissGrm', 'MissPrg'] as const;
 
 export const CARD_GROUPS: { label: string; tags: string[] }[] = [
   { label: 'Concepts',               tags: ['Def','Mn','Ex','An'] },
@@ -66,6 +85,7 @@ export const CARD_GROUPS: { label: string; tags: string[] }[] = [
   { label: 'Actions',                tags: ['A'] },
   { label: 'Measures',               tags: ['M'] },
   { label: 'Anchors',                tags: ['N','D','P'] },
+  { label: 'Language',               tags: ['L2','Gloss','Pron','Pattern','MissSnd','MissWrd','MissGrm','MissPrg'] },
 ];
 
 // Letter → tag shortcut map, identical to the existing app's keymap (utils.js).

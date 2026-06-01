@@ -1,5 +1,6 @@
 import { App, TFile, TFolder, normalizePath } from 'obsidian';
 import { VaultIndex, Mention } from './vault-index';
+import { LANGUAGE_MISS_TAGS } from '../constants';
 
 export interface HubPageOptions {
   conceptsFolder: string;   // e.g. "Concepts"
@@ -41,7 +42,83 @@ export async function rebuildHubs(
     else skipped++;
   }
 
+  // === Per-language hubs: one page per language seen across L2 mentions ===
+  const langs = collectLanguages(index);
+  for (const lang of langs) {
+    const path = normalizePath(`${opts.conceptsFolder}/lang-${lang}.md`);
+    const r = await writeHubFile(app, path, renderLanguageHub(lang, index));
+    if (r === 'created') created++;
+    else if (r === 'updated') updated++;
+    else skipped++;
+  }
+
   return { created, updated, skipped };
+}
+
+// Distinct ISO codes appearing on any L2-tagged mention. Pattern/Sound/Gloss/Miss*
+// also carry language but L2 is the canonical anchor — no L2 spans, no hub.
+function collectLanguages(index: VaultIndex): string[] {
+  const set = new Set<string>();
+  for (const m of (index.byTag['L2'] || [])) {
+    if (m.language) set.add(m.language);
+  }
+  return Array.from(set).sort();
+}
+
+function renderLanguageHub(lang: string, index: VaultIndex): string {
+  const filterLang = (list: Mention[]): Mention[] => list.filter(m => m.language === lang);
+  const l2     = filterLang(index.byTag['L2']      || []);
+  const patt   = filterLang(index.byTag['Pattern'] || []);
+  const pron   = filterLang(index.byTag['Pron']    || []);
+  const gloss  = filterLang(index.byTag['Gloss']   || []);
+
+  const lines: string[] = [];
+  lines.push('---');
+  lines.push(HUB_MARKER);
+  lines.push('sr_hub_tag: L2');
+  lines.push(`sr_language: ${lang}`);
+  lines.push('---');
+  lines.push('');
+  lines.push(`# Language hub — ${lang}`);
+  lines.push('');
+  lines.push('> [!note] Auto-generated. Aggregates L2/Pattern/Pron/Gloss/Miss* mentions across notes carrying `language: ' + lang + '`.');
+  lines.push('');
+  lines.push(`- L2 spans: ${l2.length}`);
+  lines.push(`- Patterns: ${patt.length}`);
+  lines.push(`- Pronunciation notes: ${pron.length}`);
+  lines.push(`- Glosses: ${gloss.length}`);
+  for (const tag of LANGUAGE_MISS_TAGS) {
+    const ms = filterLang(index.byTag[tag] || []);
+    lines.push(`- ${tag}: ${ms.length}`);
+  }
+  lines.push('');
+
+  if (l2.length) {
+    lines.push('## L2 vocabulary (most recent first)');
+    for (const m of l2.slice(-50).reverse()) {
+      const inlineGloss = m.note ? ` — ${truncate(m.note, 80)}` : '';
+      lines.push(`- [[${backlinkTarget(m)}]]: **${m.text}**${inlineGloss}`);
+    }
+    lines.push('');
+  }
+
+  if (patt.length) {
+    lines.push('## Grammar patterns');
+    for (const m of patt) {
+      lines.push(`- [[${backlinkTarget(m)}]]: ${truncate(m.text, 200)}`);
+    }
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+// Backlink target for a mention. PDF-sourced mentions (the wikilink carries a
+// `#page=` anchor) link straight into the PDF page; everything else links to
+// the source paragraph's block id, as before.
+function backlinkTarget(m: Mention): string {
+  if (m.wikilink && /[#&]page=/.test(m.wikilink)) return m.wikilink;
+  return `${m.notePath.replace(/\.md$/, '')}#^${m.blockId}`;
 }
 
 function renderConceptHub(entry: { canonical: string; display: string; mentions: Mention[]; coOccurs: Record<string, number> }, index: VaultIndex): string {
@@ -61,7 +138,7 @@ function renderConceptHub(entry: { canonical: string; display: string; mentions:
     lines.push('- _none yet_');
   } else {
     for (const m of entry.mentions) {
-      lines.push(`- [[${m.notePath.replace(/\.md$/, '')}#^${m.blockId}]]: ${truncate(m.text, 200)}`);
+      lines.push(`- [[${backlinkTarget(m)}]]: ${truncate(m.text, 200)}`);
     }
   }
   lines.push('');
@@ -81,7 +158,7 @@ function renderConceptHub(entry: { canonical: string; display: string; mentions:
   lines.push('## Open questions in the same notes');
   if (!relatedQs.length) lines.push('- _no related questions_');
   else for (const q of relatedQs) {
-    lines.push(`- [[${q.notePath.replace(/\.md$/, '')}#^${q.blockId}]]: ${truncate(q.text, 200)}`);
+    lines.push(`- [[${backlinkTarget(q)}]]: ${truncate(q.text, 200)}`);
   }
   lines.push('');
   return lines.join('\n');
@@ -107,7 +184,7 @@ function renderQuestionsIndex(qs: Mention[]): string {
   for (const [notePath, list] of byNote.entries()) {
     lines.push(`## [[${notePath.replace(/\.md$/, '')}]]`);
     for (const q of list) {
-      lines.push(`- [[${notePath.replace(/\.md$/, '')}#^${q.blockId}]]: ${truncate(q.text, 200)}`);
+      lines.push(`- [[${backlinkTarget(q)}]]: ${truncate(q.text, 200)}`);
     }
     lines.push('');
   }

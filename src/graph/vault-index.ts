@@ -3,6 +3,7 @@ import {
   blockIdFor,
   canonicalize,
   parseParagraph,
+  plainTextOf,
   splitParagraphs,
   stripOffsets,
   Paragraph,
@@ -16,6 +17,9 @@ export interface Mention {
   text: string;
   note?: string;
   wikilink?: string;
+  // ISO code (e.g. "de", "en") read from the source note's `language:` frontmatter.
+  // Present only when the source note opts into L2 study.
+  language?: string;
 }
 
 export interface ConceptEntry {
@@ -29,15 +33,20 @@ export interface VaultIndex {
   concepts: Record<string, ConceptEntry>;
   byTag: Record<string, Mention[]>;
   rev: number;
+  // notePath → paragraph plain-text array. Populated only for notes carrying
+  // `language:` frontmatter; consumed by coverage-aware queries (api.ts
+  // `cards.due({minCoverage})`). Keeps the index O(L2 notes) in extra memory.
+  languageParagraphs: Record<string, string[]>;
 }
 
 interface PerFileSlice {
   concepts: Record<string, Mention[]>;
   byTag: Record<string, Mention[]>;
   paragraphConcepts: string[][];   // concept canonicals per paragraph (for co-occurrence)
+  paragraphTexts?: string[];       // plain-text per paragraph — only set when the note has `language:`
 }
 
-const EMPTY: VaultIndex = { concepts: {}, byTag: {}, rev: 0 };
+const EMPTY: VaultIndex = { concepts: {}, byTag: {}, rev: 0, languageParagraphs: {} };
 
 export class VaultIndexer extends Component {
   private app: App;
@@ -75,6 +84,11 @@ export class VaultIndexer extends Component {
     this.events.trigger('changed');
 
     this.registerEvent(this.app.vault.on('modify', (f) => {
+      if (f instanceof TFile && f.extension === 'md' && !this.isHub(f.path)) {
+        this.scanAndRebuild(f);
+      }
+    }));
+    this.registerEvent(this.app.vault.on('create', (f) => {
       if (f instanceof TFile && f.extension === 'md' && !this.isHub(f.path)) {
         this.scanAndRebuild(f);
       }
@@ -126,12 +140,13 @@ export class VaultIndexer extends Component {
     const body = await this.app.vault.read(file);
     const fmCache = this.app.metadataCache.getFileCache(file)?.frontmatter;
     if (fmCache && fmCache.sr_hub === true) return; // safety net: skip hub files
+    const language = readLanguage(fmCache);
     const blocks = splitParagraphs(stripFrontmatter(body));
     const paragraphs = blocks.map(b => parseParagraph(b.text).map(stripOffsets));
     // Use the block-id actually written into the source when present, so a
     // paragraph keeps its id across reorders. Fall back to the canonical p<n>-sr.
     const blockIds = blocks.map((b, pi) => b.blockId || blockIdFor(pi));
-    const slice = buildPerFileSlice(file.path, paragraphs, blockIds);
+    const slice = buildPerFileSlice(file.path, paragraphs, blockIds, language);
     this.perFile.set(file.path, slice);
     if (emit) {
       this.rebuild();
@@ -142,8 +157,10 @@ export class VaultIndexer extends Component {
   private rebuild(): void {
     const concepts: Record<string, ConceptEntry> = {};
     const byTag: Record<string, Mention[]> = {};
+    const languageParagraphs: Record<string, string[]> = {};
 
-    for (const slice of this.perFile.values()) {
+    for (const [notePath, slice] of this.perFile.entries()) {
+      if (slice.paragraphTexts) languageParagraphs[notePath] = slice.paragraphTexts;
       // Concepts (Def tag).
       for (const canonical of Object.keys(slice.concepts)) {
         for (const m of slice.concepts[canonical]) {
@@ -175,14 +192,15 @@ export class VaultIndexer extends Component {
       }
     }
 
-    this.index = { concepts, byTag, rev: this.index.rev + 1 };
+    this.index = { concepts, byTag, rev: this.index.rev + 1, languageParagraphs };
   }
 }
 
 function buildPerFileSlice(
   notePath: string,
   paragraphs: Paragraph[],
-  blockIds: string[]
+  blockIds: string[],
+  language: string | undefined
 ): PerFileSlice {
   const concepts: Record<string, Mention[]> = {};
   const byTag: Record<string, Mention[]> = {};
@@ -200,6 +218,7 @@ function buildPerFileSlice(
       };
       if (s.note) mention.note = s.note;
       if (s.wikilink) mention.wikilink = s.wikilink;
+      if (language) mention.language = language;
       (byTag[s.tag] = byTag[s.tag] || []).push(mention);
       if (s.tag === 'Def') {
         const canonical = s.wikilink
@@ -212,12 +231,28 @@ function buildPerFileSlice(
     }
     paragraphConcepts.push(Array.from(new Set(here)));
   });
-  return { concepts, byTag, paragraphConcepts };
+  const slice: PerFileSlice = { concepts, byTag, paragraphConcepts };
+  // Only cache paragraph plain-text for language-tagged notes (cost vs benefit:
+  // we'd otherwise carry ~all-vault-text in memory; L2 notes are a small subset).
+  if (language) slice.paragraphTexts = paragraphs.map(plainTextOf);
+  return slice;
 }
 
 function basename(p: string): string {
   const i = p.lastIndexOf('/');
   return i < 0 ? p : p.slice(i + 1);
+}
+
+// Read `language: <code>` from frontmatter; trims and lower-cases. Returns
+// undefined when missing/blank/non-string. The plugin treats this as an
+// ISO-639-style code but never validates — any non-empty string opts the note
+// into L2 indexing and per-language queries.
+function readLanguage(fm: Record<string, unknown> | undefined): string | undefined {
+  if (!fm) return undefined;
+  const raw = (fm as Record<string, unknown>).language;
+  if (typeof raw !== 'string') return undefined;
+  const trimmed = raw.trim().toLowerCase();
+  return trimmed || undefined;
 }
 
 function prettyDisplay(canonical: string, fallback: string): string {

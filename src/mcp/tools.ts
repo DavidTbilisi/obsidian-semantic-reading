@@ -5,6 +5,7 @@
 import { App, TFile } from 'obsidian';
 import { SemanticReadingAPI } from '../api';
 import { AIClient } from '../ai/client';
+import { LANGUAGE_MISS_TAGS } from '../constants';
 import { ServerContext, ToolDefinition, ToolHandler } from './server';
 
 export interface ToolDeps {
@@ -95,6 +96,19 @@ export function buildMcpContext(serverVersion: string, deps: ToolDeps): ServerCo
         type: 'object',
         properties: { notePath: { type: 'string', description: 'Vault-relative path, e.g. "Inbox/today.md"' } },
         required: ['notePath'],
+      },
+    },
+    {
+      name: 'sr_l2_due_cards',
+      description: 'L2 + Pattern cards currently due, filtered by the Krashen i+1 rule. Returns coverage data, missing tokens per card, and a miss-tag histogram for the language. Notes opt in by adding `language: <code>` frontmatter; cards inherit that code via Mention.language.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          language: { type: 'string', description: 'ISO code matching the note\'s `language:` frontmatter (e.g. "de")' },
+          minCoverage: { type: 'number', description: 'i+1 coverage threshold, 0..1 (default 0.95 per Krashen)' },
+          limit: { type: 'number', description: 'Max cards returned (default 50)' },
+        },
+        required: ['language'],
       },
     },
     {
@@ -196,6 +210,38 @@ export function buildMcpContext(serverVersion: string, deps: ToolDeps): ServerCo
         notePath,
         domain: profile ? { name: profile.name, label: profile.label, mergeMode: profile.mergeMode } : null,
         tags: Object.keys(tags).map(sigil => ({ sigil, ...tags[sigil] })),
+      };
+    },
+    sr_l2_due_cards: (args) => {
+      const language = String(args.language || '').trim().toLowerCase();
+      if (!language) throw new Error('language is required (ISO code matching `language:` frontmatter)');
+      const minCoverage = args.minCoverage !== undefined ? Number(args.minCoverage) : 0.95;
+      const limit = Number(args.limit ?? 50);
+
+      // Two passes so we can report how many cards were blocked by coverage —
+      // that's the i+1 signal itself, not noise.
+      const all = deps.api.cards.due({ language });
+      const filtered = deps.api.cards.due({ language, minCoverage });
+
+      const missByType: Record<string, number> = {};
+      for (const tag of LANGUAGE_MISS_TAGS) {
+        const all = deps.api.queries.byTag(tag);
+        missByType[tag] = all.filter(m => m.language === language).length;
+      }
+      const coverages = filtered.map(c => c.coverage ?? 0).sort((a, b) => a - b);
+      const coverageMedian = coverages.length
+        ? coverages[Math.floor(coverages.length / 2)]
+        : null;
+
+      return {
+        language,
+        minCoverage,
+        totalDue: all.length,
+        belowCoverage: all.length - filtered.length,
+        returned: Math.min(filtered.length, limit),
+        coverageMedian,
+        missByType,
+        cards: filtered.slice(0, limit),
       };
     },
     sr_suggest_tags: async (args) => {

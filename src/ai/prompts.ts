@@ -53,6 +53,16 @@ export function buildTagSchemaSystemPrompt(mode: number): string {
   lines.push('- If it tells the reader what to *do* → **A**; if it tells them how to *measure success* → **M**');
   lines.push('- People → **N**; dates → **D**; places → **P**');
   lines.push('');
+  lines.push('### Language family (only when the paragraph is in a foreign language)');
+  lines.push('');
+  lines.push('Use these sigils only when the source note opts in to L2 study (via `language: <code>` frontmatter). When in doubt — leave them off.');
+  lines.push('');
+  lines.push('- **L2** — a target-language word/phrase you want to remember. The card anchor. Different from Def: L2 is a *vocabulary atom*, Def is a *concept identity*.');
+  lines.push('- **Gloss** — the L1 (your native-language) meaning of an L2 span. Often attached to an L2 span as a `note=` annotation, but can also stand alone.');
+  lines.push('- **Pron** — pronunciation note or IPA for an L2 span.');
+  lines.push('- **Pattern** — a reusable grammar pattern instance (e.g. a slot-frame, case ending, verb structure).');
+  lines.push('- **MissSnd / MissWrd / MissGrm / MissPrg** — *listening or reading miss* signals: heard but could not decode / decoded but did not know / knew words but missed structure / decoded literal meaning but missed intent. Apply these when reviewing your own comprehension failures.');
+  lines.push('');
   lines.push('Prefer the most specific applicable tag (e.g. Mn over Def for a gloss; Opp over X for an alternative view).');
   lines.push('');
   lines.push('## What you do NOT do');
