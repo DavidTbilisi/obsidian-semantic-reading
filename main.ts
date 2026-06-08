@@ -786,7 +786,7 @@ class SemanticReadingSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName('Tagbar position')
-      .setDesc('Where the tag picker appears when you select text. "Auto" floats above the selection; the corner options pin it to the active pane.')
+      .setDesc('Where the tag picker appears when you select text. "Auto" floats above the selection; the corner options pin it to the active pane. "Invisible" hides the picker entirely — tag the selection with the letter shortcut, no UI shown.')
       .addDropdown(d => {
         const options: { value: TagbarPosition; label: string }[] = [
           { value: 'top-right',     label: 'Top right' },
@@ -796,6 +796,7 @@ class SemanticReadingSettingTab extends PluginSettingTab {
           { value: 'bottom-center', label: 'Bottom center' },
           { value: 'bottom-left',   label: 'Bottom left' },
           { value: 'auto',          label: 'Auto (above selection)' },
+          { value: 'invisible',     label: 'Invisible (shortcuts only)' },
         ];
         options.forEach(o => d.addOption(o.value, o.label));
         d.setValue(this.plugin.settings.tagbarPosition);

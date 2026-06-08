@@ -506,6 +506,75 @@ describe('Tagbar — invalid mode fallback', () => {
   });
 });
 
+describe('Tagbar — invisible position (shortcuts only)', () => {
+  it('arms without rendering: stays display:none and paints no buttons', () => {
+    const { tb, el } = makeTagbar(() => 'invisible');
+    const pane = makePane({ left: 0, top: 0, width: 1000, height: 800 });
+    tb.showFor(makeView(pane), 500, 400);
+    expect(el.style.display).toBe('none');
+    expect(el.querySelectorAll('.sr-tagbar-btn').length).toBe(0);
+  });
+
+  it('commits via shortcut while invisible (showWithCommit path)', () => {
+    const commit = vi.fn();
+    const { tb, el } = makeTagbar(() => 'invisible');
+    tb.showWithCommit(0, 0, commit);
+    expect(el.style.display).toBe('none');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd' }));
+    expect(commit).toHaveBeenCalledWith('Def');
+  });
+
+  it('applies to the editor via shortcut while invisible (markdown path)', () => {
+    const { tb } = makeTagbar(() => 'invisible');
+    const pane = makePane({ left: 0, top: 0, width: 1000, height: 800 });
+    const text = 'The quick brown fox.';
+    const editor = {
+      _captured: null as any,
+      getValue() { return text; },
+      getSelection() { return text.slice(4, 9); }, // "quick"
+      getCursor(w: 'from' | 'to') { return { line: 0, ch: w === 'from' ? 4 : 9 }; },
+      posToOffset(p: { ch: number }) { return p.ch; },
+      offsetToPos(o: number) { return { line: 0, ch: o }; },
+      replaceRange(t: string, from: any, to: any) { this._captured = { text: t, from, to }; },
+    } as any;
+    tb.showFor({ editor, contentEl: pane } as any, 100, 200);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd' }));
+    expect(editor._captured).not.toBeNull();
+    expect(editor._captured.text).toMatch(/\{\{Def\|quick\}\}/);
+  });
+
+  it('Escape cancels while invisible without committing', () => {
+    const commit = vi.fn();
+    const { tb } = makeTagbar(() => 'invisible');
+    tb.showWithCommit(0, 0, commit);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(commit).not.toHaveBeenCalled();
+    // After Escape the bar is disarmed: a subsequent shortcut does nothing.
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd' }));
+    expect(commit).not.toHaveBeenCalled();
+  });
+
+  it('outside mousedown disarms the invisible bar', () => {
+    const commit = vi.fn();
+    const { tb } = makeTagbar(() => 'invisible');
+    tb.showWithCommit(0, 0, commit);
+    const outside = document.createElement('div');
+    document.body.appendChild(outside);
+    outside.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd' }));
+    expect(commit).not.toHaveBeenCalled();
+  });
+
+  it('does not arm when there is no selection text', () => {
+    const commit = vi.fn();
+    const { tb } = makeTagbar(() => 'invisible');
+    const pane = makePane({ left: 0, top: 0, width: 1000, height: 800 });
+    tb.showFor(makeView(pane, ''), 500, 400);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd' }));
+    expect(commit).not.toHaveBeenCalled();
+  });
+});
+
 describe('Tagbar — setMode', () => {
   it('re-renders when visible', () => {
     const { tb, el } = makeTagbar(() => 'top-right');

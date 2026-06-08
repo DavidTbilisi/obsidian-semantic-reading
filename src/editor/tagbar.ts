@@ -16,7 +16,10 @@ import {
 export type TagbarPosition =
   | 'auto'
   | 'top-left' | 'top-center' | 'top-right'
-  | 'bottom-left' | 'bottom-center' | 'bottom-right';
+  | 'bottom-left' | 'bottom-center' | 'bottom-right'
+  // 'invisible' keeps the tagbar armed for keyboard shortcuts but never renders
+  // the picker — you tag the selection by pressing the letter key, no UI shown.
+  | 'invisible';
 
 export class Tagbar {
   private el: HTMLDivElement;
@@ -28,6 +31,10 @@ export class Tagbar {
   private pendingCommit: ((tag: string) => void | Promise<void>) | null = null;
   private mode: number;
   private getPosition: () => TagbarPosition;
+  // True whenever a selection is armed for tagging — independent of whether the
+  // picker is visually rendered. In 'invisible' position the bar stays armed
+  // (so shortcuts fire) while `el` remains display:none.
+  private active = false;
   private keyHandler: (e: KeyboardEvent) => void;
   private outsideClickHandler: (e: MouseEvent) => void;
 
@@ -41,7 +48,7 @@ export class Tagbar {
 
     this.keyHandler = (e: KeyboardEvent) => this.onKey(e);
     this.outsideClickHandler = (e: MouseEvent) => {
-      if (this.isVisible() && !this.el.contains(e.target as Node)) this.hide();
+      if (this.active && !this.el.contains(e.target as Node)) this.hide();
     };
     document.addEventListener('keydown', this.keyHandler, true);
     document.addEventListener('mousedown', this.outsideClickHandler, true);
@@ -68,7 +75,9 @@ export class Tagbar {
     this.currentEditor = editor;
     this.currentView = view;
     this.currentSelection = { from, to };
+    this.active = true;
 
+    if (this.getPosition() === 'invisible') { this.el.style.display = 'none'; return; }
     this.render();
     this.positionEl(view.contentEl, x, y);
     this.el.style.display = '';
@@ -86,7 +95,9 @@ export class Tagbar {
     this.currentView = null;
     this.currentSelection = null;
     this.pendingCommit = commit;
+    this.active = true;
 
+    if (this.getPosition() === 'invisible') { this.el.style.display = 'none'; return; }
     this.render();
     this.positionEl(paneEl, x, y);
     this.el.style.display = '';
@@ -127,6 +138,7 @@ export class Tagbar {
 
   hide(): void {
     this.el.style.display = 'none';
+    this.active = false;
     this.currentEditor = null;
     this.currentView = null;
     this.currentSelection = null;
@@ -171,7 +183,7 @@ export class Tagbar {
   }
 
   private onKey(e: KeyboardEvent): void {
-    if (!this.isVisible()) return;
+    if (!this.active) return;
     if (e.key === 'Escape') { e.preventDefault(); this.hide(); return; }
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (e.key.length !== 1) return;
