@@ -708,3 +708,36 @@
 .sr-search-row { display: flex; gap: 8px; align-items: baseline; }
 .sr-search-text { flex: 1; }
 .sr-search-note { color: var(--text-faint); font-size: 11px; font-family: var(--font-monospace); }
+
+/* === PDF highlight overlay (M2) === */
+/* One overlay per visual line of a tagged PDF span. The pageEl is the offset
+   parent (PDF.js positions textLayer / canvas inside it). pointer-events: none
+   keeps native text selection working underneath. Tag color comes from the
+   .sr-tg-<sigil> class via currentColor — same palette as the markdown side. */
+.sr-pdf-highlight {
+  position: absolute;
+  pointer-events: none;
+  background-color: color-mix(in srgb, currentColor 18%, transparent);
+  border-bottom: 2px solid color-mix(in srgb, currentColor 70%, transparent);
+  border-radius: 1px;
+  /* Slight inset so the overlay hugs the glyphs rather than the full line box. */
+  box-sizing: border-box;
+  mix-blend-mode: multiply;
+}
+.theme-dark .sr-pdf-highlight {
+  /* multiply darkens on dark backgrounds — screen blends additively instead. */
+  mix-blend-mode: screen;
+  background-color: color-mix(in srgb, currentColor 22%, transparent);
+}
+
+/* Rect-anchored variant (image-PDF / drag-rect entries): outline rather than
+   underline, since there's no glyph baseline to ride. */
+.sr-pdf-highlight.sr-pdf-highlight-rect {
+  border-bottom: none;
+  outline: 1.5px solid color-mix(in srgb, currentColor 70%, transparent);
+  outline-offset: -1.5px;
+  background-color: color-mix(in srgb, currentColor 10%, transparent);
+}
+.theme-dark .sr-pdf-highlight.sr-pdf-highlight-rect {
+  background-color: color-mix(in srgb, currentColor 14%, transparent);
+}

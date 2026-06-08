@@ -5,7 +5,10 @@
   "main": "main.js",
   "scripts": {
     "dev": "node esbuild.config.mjs",
-    "build": "node esbuild.config.mjs production"
+    "build": "node esbuild.config.mjs production",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage"
   },
   "keywords": [],
   "author": "david",
@@ -18,9 +21,12 @@
     "@codemirror/state": "6.5.0",
     "@codemirror/view": "6.36.0",
     "@types/node": "^20.0.0",
+    "@vitest/coverage-v8": "^1.6.1",
     "builtin-modules": "^3.3.0",
     "esbuild": "^0.20.0",
+    "happy-dom": "^14.12.3",
     "obsidian": "latest",
-    "typescript": "^5.4.0"
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.1"
   }
 }

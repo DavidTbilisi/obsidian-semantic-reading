@@ -10,7 +10,11 @@ import {
 } from 'obsidian';
 import { semanticReadingExtension } from './src/editor/cm-extension';
 import { semanticReadingPostProcessor } from './src/editor/reading-post';
-import { Tagbar, selectionCoords } from './src/editor/tagbar';
+import { Tagbar, TagbarPosition, selectionCoords } from './src/editor/tagbar';
+import { isPdfView, showTagbarForPdf } from './src/pdf/pdf-tagbar';
+import { isSidecarPath } from './src/pdf/sidecar';
+import { PdfHighlightLayer } from './src/pdf/highlight-layer';
+import { installPdfRectDragTracking } from './src/pdf/rect-drag';
 import { CardsView, CARDS_VIEW_TYPE, stripFrontmatter } from './src/views/cards-view';
 import { AtlasView, ATLAS_VIEW_TYPE } from './src/views/atlas-view';
 import { VaultAtlasView, VAULT_ATLAS_VIEW_TYPE } from './src/views/vault-atlas-view';
@@ -44,7 +48,7 @@ import {
 import { maybeInjectDaily } from './src/integrations/daily-note';
 import { DEFAULT_MCP_OPTIONS, McpServer, McpServerOptions } from './src/mcp/server';
 import { buildMcpContext } from './src/mcp/tools';
-import { BUILTIN_TAGS, FAMILIES, MODES } from './src/constants';
+import { BUILTIN_KEY_TO_TAG, BUILTIN_TAGS, FAMILIES, MODES, TAGS, applyKeyBindingOverrides } from './src/constants';
 import {
   CustomTagDef,
   applyCustomTags,
@@ -82,6 +86,9 @@ interface SemanticReadingSettings {
   tasksPush: TasksPushOptions;
   readwise: ReadwiseOptions;
   mcp: McpServerOptions;
+  pdfAnnotationsEnabled: boolean;
+  tagbarPosition: TagbarPosition;
+  tagKeyBindings: Record<string, string>;
 }
 
 const DEFAULT_SETTINGS: SemanticReadingSettings = {
@@ -101,6 +108,9 @@ const DEFAULT_SETTINGS: SemanticReadingSettings = {
   tasksPush: DEFAULT_TASKS_PUSH_OPTIONS,
   readwise: DEFAULT_READWISE_OPTIONS,
   mcp: DEFAULT_MCP_OPTIONS,
+  pdfAnnotationsEnabled: true,
+  tagbarPosition: 'top-right',
+  tagKeyBindings: {},
 };
 
 export default class SemanticReadingPlugin extends Plugin {
@@ -110,14 +120,19 @@ export default class SemanticReadingPlugin extends Plugin {
   indexer!: VaultIndexer;
   api!: SemanticReadingAPI;
   mcp!: McpServer;
+  pdfHighlightLayer?: PdfHighlightLayer;
 
   async onload(): Promise<void> {
     await this.loadSettings();
 
-    this.tagbar = new Tagbar(this.settings.defaultMode);
+    this.tagbar = new Tagbar(this.settings.defaultMode, () => this.settings.tagbarPosition);
     this.ai = new AIClient(this.settings.ai);
     this.indexer = new VaultIndexer(this.app, this.hubFolders());
     this.addChild(this.indexer);
+    if (this.settings.pdfAnnotationsEnabled) {
+      this.pdfHighlightLayer = new PdfHighlightLayer(this.app, this.indexer);
+      this.addChild(this.pdfHighlightLayer);
+    }
     this.api = createApi(this, this.manifest.version);
     this.mcp = new McpServer(buildMcpContext(this.manifest.version, {
       app: this.app,
@@ -144,12 +159,21 @@ export default class SemanticReadingPlugin extends Plugin {
     this.registerCommands();
     this.addSettingTab(new SemanticReadingSettingTab(this.app, this));
 
-    // Tagbar on selection.
+    // Tagbar on selection — markdown editors, plus PDF views when enabled.
+    if (this.settings.pdfAnnotationsEnabled) installPdfRectDragTracking();
     this.registerDomEvent(document, 'mouseup', (e: MouseEvent) => {
       if ((e.target as HTMLElement)?.closest('.sr-tagbar')) return;
-      const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-      if (!view || !view.editor) return;
-      window.setTimeout(() => this.showTagbarFor(view), 0);
+      const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
+      if (mdView && mdView.editor) {
+        window.setTimeout(() => this.showTagbarFor(mdView), 0);
+        return;
+      }
+      if (this.settings.pdfAnnotationsEnabled) {
+        const active = this.app.workspace.activeLeaf?.view;
+        if (isPdfView(active)) {
+          window.setTimeout(() => showTagbarForPdf(this.app, this.tagbar, active, e), 0);
+        }
+      }
     });
 
     // Sync frontmatter + indexer on save (debounced per file).
@@ -157,6 +181,7 @@ export default class SemanticReadingPlugin extends Plugin {
       this.app.vault.on('modify', (file) => {
         if (!(file instanceof TFile) || file.extension !== 'md') return;
         if (this.isHubFile(file.path)) return;
+        if (isSidecarPath(file.path)) return;
         if (this.settings.writeFrontmatter) this.scheduleSync(file);
       })
     );
@@ -217,6 +242,9 @@ export default class SemanticReadingPlugin extends Plugin {
     this.settings.domains = Array.isArray(saved?.domains) ? saved.domains : DOMAIN_PRESETS;
     this.settings.tasksPush = Object.assign({}, DEFAULT_TASKS_PUSH_OPTIONS, saved?.tasksPush);
     this.settings.readwise = Object.assign({}, DEFAULT_READWISE_OPTIONS, saved?.readwise);
+    this.settings.tagKeyBindings = (saved?.tagKeyBindings && typeof saved.tagKeyBindings === 'object')
+      ? saved.tagKeyBindings as Record<string, string>
+      : {};
     this.refreshCustomTags();
   }
   async saveSettings(): Promise<void> {
@@ -247,6 +275,7 @@ export default class SemanticReadingPlugin extends Plugin {
   refreshCustomTags(): void {
     const domain = this.activeDomain();
     applyCustomTags(this.settings.customTags, domain);
+    applyKeyBindingOverrides(this.settings.tagKeyBindings || {});
     // Inject CSS for universal customs + every domain's tags so opening any
     // note already has its colors available.
     const allDomainTags = (this.settings.domains || []).flatMap(d => d.tags);
@@ -755,6 +784,29 @@ class SemanticReadingSettingTab extends PluginSettingTab {
         t.onChange(async v => { this.plugin.settings.writeFrontmatter = v; await this.plugin.saveSettings(); });
       });
 
+    new Setting(containerEl)
+      .setName('Tagbar position')
+      .setDesc('Where the tag picker appears when you select text. "Auto" floats above the selection; the corner options pin it to the active pane.')
+      .addDropdown(d => {
+        const options: { value: TagbarPosition; label: string }[] = [
+          { value: 'top-right',     label: 'Top right' },
+          { value: 'top-center',    label: 'Top center' },
+          { value: 'top-left',      label: 'Top left' },
+          { value: 'bottom-right',  label: 'Bottom right' },
+          { value: 'bottom-center', label: 'Bottom center' },
+          { value: 'bottom-left',   label: 'Bottom left' },
+          { value: 'auto',          label: 'Auto (above selection)' },
+        ];
+        options.forEach(o => d.addOption(o.value, o.label));
+        d.setValue(this.plugin.settings.tagbarPosition);
+        d.onChange(async v => {
+          this.plugin.settings.tagbarPosition = v as TagbarPosition;
+          await this.plugin.saveSettings();
+        });
+      });
+
+    this.renderTagKeyBindings(containerEl);
+
     containerEl.createEl('h2', { text: 'Knowledge graph' });
     new Setting(containerEl)
       .setName('Concepts folder')
@@ -868,6 +920,15 @@ class SemanticReadingSettingTab extends PluginSettingTab {
       .addText(t => {
         t.setValue(this.plugin.settings.anki.deckName);
         t.onChange(async v => { this.plugin.settings.anki.deckName = v.trim() || 'Semantic Reading'; await this.plugin.saveSettings(); });
+      });
+
+    containerEl.createEl('h2', { text: 'PDF annotations' });
+    new Setting(containerEl)
+      .setName('Enable tagging in PDF views')
+      .setDesc('When selecting text inside an Obsidian PDF view, the tagbar appears just like in markdown. Picks are saved to a colocated sidecar (<name>.sr.md) that the indexer, hubs, cards, and MCP already understand.')
+      .addToggle(t => {
+        t.setValue(this.plugin.settings.pdfAnnotationsEnabled);
+        t.onChange(async v => { this.plugin.settings.pdfAnnotationsEnabled = v; await this.plugin.saveSettings(); });
       });
 
     containerEl.createEl('h2', { text: 'Daily note injection' });
@@ -1063,6 +1124,125 @@ class SemanticReadingSettingTab extends PluginSettingTab {
           new Notice('Copied MCP config snippet to clipboard.');
         });
       });
+  }
+
+  // Tag key-binding editor: one row per known sigil, with the current effective
+  // key (built-in or override). Empty input clears the binding. Save validates
+  // for single-letter keys and collisions; the first conflicting row wins, the
+  // rest reset to their previous value with a Notice.
+  private renderTagKeyBindings(parent: HTMLElement): void {
+    const details = parent.createEl('details', { cls: 'sr-tag-shortcuts-details' });
+    details.style.marginTop = '1.5em';
+    const summary = details.createEl('summary');
+    summary.style.cursor = 'pointer';
+    summary.style.fontWeight = '600';
+    summary.style.fontSize = '1.05em';
+    summary.style.padding = '0.4em 0';
+    summary.setText('Tag shortcuts');
+
+    details.createEl('p', {
+      cls: 'setting-item-description',
+      text: 'One letter per tag. Empty = no shortcut. Built-in letters are shown as defaults; overrides take precedence.',
+    });
+
+    const wrap = details.createDiv({ cls: 'sr-tag-shortcuts' });
+
+    const draw = () => {
+      wrap.empty();
+      const overrides = this.plugin.settings.tagKeyBindings || {};
+      // Current effective key per sigil: built-in unless explicitly overridden.
+      const builtinByTag: Record<string, string> = {};
+      for (const [k, sigil] of Object.entries(BUILTIN_KEY_TO_TAG)) builtinByTag[sigil] = k;
+      const overrideByTag: Record<string, string> = {};
+      // Keys whose binding was explicitly cleared by the user (override = '').
+      const clearedKeys = new Set<string>();
+      for (const [k, sigil] of Object.entries(overrides)) {
+        if (!k) continue;
+        if (sigil) overrideByTag[sigil] = k;
+        else clearedKeys.add(k);
+      }
+
+      const sigils = Object.keys(TAGS).sort();
+      for (const sigil of sigils) {
+        const def = TAGS[sigil];
+        const builtin = builtinByTag[sigil] || '';
+        const override = overrideByTag[sigil] || '';
+        // Built-in binding is shadowed if the user explicitly cleared it.
+        const builtinActive = builtin && !clearedKeys.has(builtin);
+        const current = override || (builtinActive ? builtin : '');
+        new Setting(wrap)
+          .setName(`${sigil} — ${def.name}`)
+          .setDesc(def.desc || '')
+          .addText(t => {
+            t.inputEl.maxLength = 1;
+            t.inputEl.style.width = '3em';
+            t.inputEl.style.textAlign = 'center';
+            t.setPlaceholder(builtinByTag[sigil] || '');
+            t.setValue(current);
+            t.onChange(async v => {
+              const next = (v || '').toLowerCase().slice(0, 1);
+
+              // Re-read state live so multiple edits in one render don't race.
+              const live = this.plugin.settings.tagKeyBindings || {};
+              const liveOverrideByTag: Record<string, string> = {};
+              const liveCleared = new Set<string>();
+              for (const [k, s] of Object.entries(live)) {
+                if (!k) continue;
+                if (s) liveOverrideByTag[s] = k;
+                else liveCleared.add(k);
+              }
+
+              const wasOverride = liveOverrideByTag[sigil] || '';
+              const wasBuiltin = builtinByTag[sigil] || '';
+              const wasEffective = wasOverride
+                || (wasBuiltin && !liveCleared.has(wasBuiltin) ? wasBuiltin : '');
+
+              if (next === wasEffective) return;
+
+              if (next) {
+                for (const other of sigils) {
+                  if (other === sigil) continue;
+                  const otherOverride = liveOverrideByTag[other] || '';
+                  const otherBuiltin = builtinByTag[other] || '';
+                  const otherEff = otherOverride
+                    || (otherBuiltin && !liveCleared.has(otherBuiltin) ? otherBuiltin : '');
+                  if (otherEff === next) {
+                    new Notice(`"${next}" is already bound to ${other}`);
+                    t.setValue(current);
+                    return;
+                  }
+                }
+              }
+
+              const map = { ...live };
+              if (!next) {
+                if (wasOverride) delete map[wasOverride];
+                if (wasBuiltin) map[wasBuiltin] = '';
+              } else {
+                if (wasOverride && wasOverride !== next) delete map[wasOverride];
+                // If the new key was previously a "cleared built-in" marker, drop that.
+                if (map[next] === '') delete map[next];
+                map[next] = sigil;
+              }
+
+              this.plugin.settings.tagKeyBindings = map;
+              await this.plugin.saveSettings();
+            });
+          });
+      }
+
+      new Setting(wrap)
+        .addButton(b => {
+          b.setButtonText('Reset to defaults');
+          b.onClick(async () => {
+            this.plugin.settings.tagKeyBindings = {};
+            await this.plugin.saveSettings();
+            draw();
+          });
+        });
+    };
+
+    draw();
   }
 
   // Parameterized tag-list editor — used both for vault-wide custom tags and

@@ -13,17 +13,27 @@ import {
   stripOffsets,
 } from '../syntax';
 
+export type TagbarPosition =
+  | 'auto'
+  | 'top-left' | 'top-center' | 'top-right'
+  | 'bottom-left' | 'bottom-center' | 'bottom-right';
+
 export class Tagbar {
   private el: HTMLDivElement;
   private currentEditor: Editor | null = null;
   private currentView: MarkdownView | null = null;
   private currentSelection: { from: number; to: number } | null = null;
+  // External commit hook used by non-markdown surfaces (PDF view). When set,
+  // `apply(tag)` invokes this instead of running the markdown-editor commit.
+  private pendingCommit: ((tag: string) => void | Promise<void>) | null = null;
   private mode: number;
+  private getPosition: () => TagbarPosition;
   private keyHandler: (e: KeyboardEvent) => void;
   private outsideClickHandler: (e: MouseEvent) => void;
 
-  constructor(mode: number) {
+  constructor(mode: number, getPosition: () => TagbarPosition = () => 'auto') {
     this.mode = mode;
+    this.getPosition = getPosition;
     this.el = document.createElement('div');
     this.el.className = 'sr-tagbar';
     this.el.style.display = 'none';
@@ -60,13 +70,59 @@ export class Tagbar {
     this.currentSelection = { from, to };
 
     this.render();
-
-    const rect = this.el.getBoundingClientRect();
-    const px = Math.min(Math.max(8, x - rect.width / 2), window.innerWidth - rect.width - 8);
-    const py = Math.max(8, y - rect.height - 12);
-    this.el.style.left = px + 'px';
-    this.el.style.top = py + 'px';
+    this.positionEl(view.contentEl, x, y);
     this.el.style.display = '';
+  }
+
+  // Open the tagbar against a non-markdown surface. The caller owns the commit:
+  // on tag pick the tagbar invokes `commit(tag)` and hides itself.
+  showWithCommit(
+    x: number,
+    y: number,
+    commit: (tag: string) => void | Promise<void>,
+    paneEl?: HTMLElement,
+  ): void {
+    this.currentEditor = null;
+    this.currentView = null;
+    this.currentSelection = null;
+    this.pendingCommit = commit;
+
+    this.render();
+    this.positionEl(paneEl, x, y);
+    this.el.style.display = '';
+  }
+
+  // Place the tagbar according to the user's chosen position. In 'auto' mode we
+  // float above the selection at (x, y). In any corner mode we pin to the
+  // anchor pane's bounding rect (falls back to the window if no pane was given).
+  private positionEl(anchor: HTMLElement | undefined, x: number, y: number): void {
+    const mode = this.getPosition();
+    const rect = this.el.getBoundingClientRect();
+    const margin = 8;
+
+    if (mode === 'auto') {
+      const px = Math.min(Math.max(margin, x - rect.width / 2), window.innerWidth - rect.width - margin);
+      const py = Math.max(margin, y - rect.height - 12);
+      this.el.style.left = px + 'px';
+      this.el.style.top = py + 'px';
+      return;
+    }
+
+    const pane = anchor?.getBoundingClientRect()
+      ?? { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight, width: window.innerWidth, height: window.innerHeight } as DOMRect;
+
+    const isTop = mode.startsWith('top-');
+    const horiz = mode.slice(mode.indexOf('-') + 1);
+
+    let px: number;
+    if (horiz === 'left')   px = pane.left + margin;
+    else if (horiz === 'right') px = pane.right - rect.width - margin;
+    else                    px = pane.left + (pane.width - rect.width) / 2;
+
+    const py = isTop ? pane.top + margin : pane.bottom - rect.height - margin;
+
+    this.el.style.left = Math.max(margin, px) + 'px';
+    this.el.style.top = Math.max(margin, py) + 'px';
   }
 
   hide(): void {
@@ -74,6 +130,7 @@ export class Tagbar {
     this.currentEditor = null;
     this.currentView = null;
     this.currentSelection = null;
+    this.pendingCommit = null;
   }
 
   destroy(): void {
@@ -127,6 +184,12 @@ export class Tagbar {
   }
 
   private apply(tag: string): void {
+    if (this.pendingCommit) {
+      const commit = this.pendingCommit;
+      this.hide();
+      void commit(tag);
+      return;
+    }
     const editor = this.currentEditor;
     const sel = this.currentSelection;
     if (!editor || !sel) return;

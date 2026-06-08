@@ -221,7 +221,13 @@ function buildPerFileSlice(
       if (language) mention.language = language;
       (byTag[s.tag] = byTag[s.tag] || []).push(mention);
       if (s.tag === 'Def') {
-        const canonical = s.wikilink
+        // Wikilink-bearing Defs normally point at a Concepts/ page, and the
+        // basename of that path is the canonical slug. But PDF-sourced Defs
+        // carry a SOURCE wikilink (file.pdf#page=N) that has no concept-page
+        // meaning — canonicalizing it produces garbage and collapses every PDF
+        // Def into one bogus hub. For those, fall back to the display text.
+        const isSourceAnchor = !!s.wikilink && /[#&]page=/.test(s.wikilink);
+        const canonical = s.wikilink && !isSourceAnchor
           ? canonicalize(basename(s.wikilink))
           : canonicalize(s.text);
         if (!canonical) continue;

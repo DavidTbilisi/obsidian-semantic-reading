@@ -127,6 +127,22 @@ export function tagForKey(key: string): string | null {
   return KEY_TO_TAG[key.toLowerCase()] || null;
 }
 
+// Apply user key-binding overrides on top of whatever is currently in
+// KEY_TO_TAG (built-ins plus any custom-tag bindings). Each entry maps a single
+// letter to a tag sigil; non-existent sigils are skipped. Unlike the custom-tag
+// flow, user overrides DO shadow built-in bindings — that's the whole point.
+export function applyKeyBindingOverrides(overrides: Record<string, string>): void {
+  if (!overrides) return;
+  for (const rawKey of Object.keys(overrides)) {
+    const k = rawKey.toLowerCase();
+    if (k.length !== 1) continue;
+    const sigil = overrides[rawKey];
+    if (!sigil) { delete KEY_TO_TAG[k]; continue; }
+    if (!TAGS[sigil]) continue;
+    KEY_TO_TAG[k] = sigil;
+  }
+}
+
 // Returns tag keys ordered so each parent is followed by its children.
 export function tagOrder(filterFn?: (k: string) => boolean): string[] {
   const keys = Object.keys(TAGS).filter(filterFn || (() => true));
