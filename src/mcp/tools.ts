@@ -1,12 +1,27 @@
 // MCP tool registry: thin handlers that wrap the public plugin API and the
 // AIClient. Returning the underlying objects (Mention[], ConceptEntry, …)
 // keeps the schemas readable — the server stringifies them as the tool result.
+//
+// Also builds the resources + prompts context (axis 3): concept hubs / open
+// questions / notes as MCP resources, and the AI tag-suggest / synthesis
+// templates as MCP prompts.
 
 import { App, TFile } from 'obsidian';
 import { SemanticReadingAPI } from '../api';
 import { AIClient } from '../ai/client';
 import { LANGUAGE_MISS_TAGS } from '../constants';
-import { ServerContext, ToolDefinition, ToolHandler } from './server';
+import { Rating } from '../study/fsrs';
+import { buildTagSchemaSystemPrompt, suggestUserPrompt, synthesisUserPrompt } from '../ai/prompts';
+import {
+  PromptDef,
+  PromptResult,
+  ResourceContent,
+  ResourceDef,
+  ResourceTemplateDef,
+  ServerContext,
+  ToolDefinition,
+  ToolHandler,
+} from './server';
 
 export interface ToolDeps {
   app: App;
@@ -14,7 +29,14 @@ export interface ToolDeps {
   ai: AIClient;
   conceptsFolder: () => string;
   activeMode: () => number;
+  // Vault-wide write commands surfaced as MCP tools (gated by allowWrites).
+  rebuildHubs: () => Promise<{ created: number; updated: number; skipped: number }>;
+  exportMarkdown: (notePath: string) => Promise<{ path: string }>;
 }
+
+const CONCEPT_URI = 'sr://concept/';
+const NOTE_URI = 'sr://note/';
+const OPEN_QUESTIONS_URI = 'sr://questions/open';
 
 export function buildMcpContext(serverVersion: string, deps: ToolDeps): ServerContext {
   const tools: ToolDefinition[] = [
@@ -130,6 +152,123 @@ export function buildMcpContext(serverVersion: string, deps: ToolDeps): ServerCo
           },
         },
         required: ['paragraph'],
+      },
+    },
+
+    // === Axis 1: more read API surfaced as tools ===
+    {
+      name: 'sr_actions',
+      description: 'Every action (A-tagged span) across the vault, with note path + block id. Symmetric with sr_open_questions.',
+      inputSchema: { type: 'object', properties: {} },
+    },
+    {
+      name: 'sr_all_cards',
+      description: 'All cards derivable from the index (Def + Q), regardless of due state. Use sr_due_cards for the review queue.',
+      inputSchema: {
+        type: 'object',
+        properties: { limit: { type: 'number', description: 'Max results (default 100)' } },
+      },
+    },
+    {
+      name: 'sr_card_state',
+      description: 'Persisted FSRS scheduling state (stability, difficulty, due date, reps, lapses) for a card id. Card ids come from sr_due_cards / sr_all_cards.',
+      inputSchema: {
+        type: 'object',
+        properties: { cardId: { type: 'string', description: 'Card id, e.g. "Notes/x.md#p2-sr#Def#1a2b3c4d"' } },
+        required: ['cardId'],
+      },
+    },
+    {
+      name: 'sr_parse_body',
+      description: 'Parse markdown body text (frontmatter already stripped) into the plugin\'s paragraph/segment model. Lets a client read {{Tag|…}} markup without re-implementing the parser.',
+      inputSchema: {
+        type: 'object',
+        properties: { body: { type: 'string', description: 'Markdown body (no frontmatter)' } },
+        required: ['body'],
+      },
+    },
+    {
+      name: 'sr_serialize_paragraph',
+      description: 'Serialize an array of segments ({text, tag?, note?, wikilink?}) back into {{Tag|…}} markup. Inverse of sr_parse_body.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          segments: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                text: { type: 'string' },
+                tag: { type: 'string' },
+                note: { type: 'string' },
+                wikilink: { type: 'string' },
+              },
+              required: ['text'],
+            },
+          },
+        },
+        required: ['segments'],
+      },
+    },
+
+    // === Axis 2: write tools (gated by the MCP "Allow write tools" setting) ===
+    {
+      name: 'sr_review_card',
+      description: 'Grade a due card and advance its FSRS schedule. rating: 1=Again, 2=Hard, 3=Good, 4=Easy. Persists state and rolls the day/streak counters, exactly like the review UI.',
+      scope: 'write',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          cardId: { type: 'string', description: 'Card id from sr_due_cards / sr_all_cards' },
+          rating: { type: 'number', description: '1=Again, 2=Hard, 3=Good, 4=Easy' },
+        },
+        required: ['cardId', 'rating'],
+      },
+    },
+    {
+      name: 'sr_apply_tag',
+      description: 'Wrap a verbatim span inside a paragraph with {{tag|…}} markup, ensuring the paragraph gets a stable block id. Frontmatter is preserved. Closes the loop on sr_suggest_tags: suggest → apply.',
+      scope: 'write',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          notePath: { type: 'string', description: 'Vault-relative path' },
+          paraIndex: { type: 'number', description: '0-based paragraph index (matches Mention.paraIndex)' },
+          span: { type: 'string', description: 'Verbatim substring of the paragraph\'s plain text to tag' },
+          tag: { type: 'string', description: 'Tag sigil to apply' },
+          note: { type: 'string', description: 'Optional note= annotation' },
+        },
+        required: ['notePath', 'paraIndex', 'span', 'tag'],
+      },
+    },
+    {
+      name: 'sr_synthesize',
+      description: 'Ask the AI to synthesize a Markdown document from a slice of vault content, citing sources as [[Note#^block-id]]. Returns the generated text (does not write a file). Requires the Anthropic API key.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          templateName: { type: 'string', description: 'A label for the kind of document (e.g. "Literature note")' },
+          instruction: { type: 'string', description: 'What to produce from the slice' },
+          slice: { type: 'string', description: 'The vault content the model may cite (the only data it sees)' },
+          mode: { type: 'number', description: 'Reading mode 1–5; defaults to the active mode' },
+        },
+        required: ['templateName', 'instruction', 'slice'],
+      },
+    },
+    {
+      name: 'sr_rebuild_hubs',
+      description: 'Rebuild concept hub pages (Concepts/<slug>.md), the open-questions index, and per-language hubs from the current index. Creates/updates plugin-owned pages only.',
+      scope: 'write',
+      inputSchema: { type: 'object', properties: {} },
+    },
+    {
+      name: 'sr_export_markdown',
+      description: 'Export a note\'s tagged spans to a plain-markdown "<name>.annotated.md" sidecar next to it. Returns the written path.',
+      scope: 'write',
+      inputSchema: {
+        type: 'object',
+        properties: { notePath: { type: 'string', description: 'Vault-relative path of the source note' } },
+        required: ['notePath'],
       },
     },
   ];
@@ -256,6 +395,169 @@ export function buildMcpContext(serverVersion: string, deps: ToolDeps): ServerCo
         : [];
       return await deps.ai.suggest(paragraph, existingTags, mode);
     },
+
+    // === Axis 1 ===
+    sr_actions: () => {
+      const actions = deps.api.queries.actions();
+      return { count: actions.length, actions };
+    },
+    sr_all_cards: (args) => {
+      const limit = Number(args.limit ?? 100);
+      const all = deps.api.cards.all();
+      return { total: all.length, returned: Math.min(all.length, limit), cards: all.slice(0, limit) };
+    },
+    sr_card_state: (args) => {
+      const cardId = String(args.cardId || '');
+      if (!cardId) throw new Error('cardId is required');
+      const state = deps.api.cards.state(cardId);
+      return { cardId, state: state ?? null };
+    },
+    sr_parse_body: (args) => {
+      const body = String(args.body || '');
+      return { paragraphs: deps.api.parse.body(body) };
+    },
+    sr_serialize_paragraph: (args) => {
+      const segments = Array.isArray(args.segments) ? args.segments : [];
+      return { text: deps.api.parse.serializeParagraph(segments as Parameters<typeof deps.api.parse.serializeParagraph>[0]) };
+    },
+
+    // === Axis 2 ===
+    sr_review_card: async (args) => {
+      const cardId = String(args.cardId || '');
+      const rating = Number(args.rating);
+      return await deps.api.cards.review(cardId, rating as Rating);
+    },
+    sr_apply_tag: async (args) => {
+      return await deps.api.edits.applyTag({
+        notePath: String(args.notePath || ''),
+        paraIndex: Number(args.paraIndex),
+        span: String(args.span || ''),
+        tag: String(args.tag || ''),
+        note: args.note !== undefined ? String(args.note) : undefined,
+      });
+    },
+    sr_synthesize: async (args) => {
+      if (!deps.ai.isReady()) {
+        throw new Error('AI client not configured. Enable AI features and set the Anthropic API key in plugin settings.');
+      }
+      const templateName = String(args.templateName || '');
+      const instruction = String(args.instruction || '');
+      const slice = String(args.slice || '');
+      if (!templateName || !instruction || !slice) {
+        throw new Error('templateName, instruction, and slice are all required');
+      }
+      const mode = Number(args.mode ?? deps.activeMode());
+      return await deps.ai.synthesize(templateName, instruction, slice, mode);
+    },
+    sr_rebuild_hubs: async () => {
+      return await deps.rebuildHubs();
+    },
+    sr_export_markdown: async (args) => {
+      const notePath = String(args.notePath || '');
+      if (!notePath) throw new Error('notePath is required');
+      return await deps.exportMarkdown(notePath);
+    },
+  };
+
+  // === Axis 3: resources ===
+  const resources = (): ResourceDef[] => {
+    const out: ResourceDef[] = [
+      {
+        uri: OPEN_QUESTIONS_URI,
+        name: 'Open questions',
+        description: 'Every Q-tagged span across the vault, as JSON.',
+        mimeType: 'application/json',
+      },
+    ];
+    for (const c of deps.api.queries.concepts()) {
+      out.push({
+        uri: CONCEPT_URI + encodeURIComponent(c.canonical),
+        name: c.display,
+        description: `Concept hub — ${c.mentions.length} mention(s)`,
+        mimeType: 'text/markdown',
+      });
+    }
+    return out;
+  };
+
+  const resourceTemplates: ResourceTemplateDef[] = [
+    {
+      uriTemplate: NOTE_URI + '{path}',
+      name: 'Vault note',
+      description: 'Raw markdown of any vault note by its vault-relative path (URL-encoded).',
+      mimeType: 'text/markdown',
+    },
+  ];
+
+  const readResource = async (uri: string): Promise<ResourceContent> => {
+    if (uri === OPEN_QUESTIONS_URI) {
+      const qs = deps.api.queries.openQuestions();
+      return { uri, mimeType: 'application/json', text: JSON.stringify({ count: qs.length, questions: qs }, null, 2) };
+    }
+    if (uri.startsWith(CONCEPT_URI)) {
+      const canonical = decodeURIComponent(uri.slice(CONCEPT_URI.length));
+      const path = `${deps.conceptsFolder()}/${canonical}.md`;
+      const file = deps.app.vault.getAbstractFileByPath(path);
+      if (file instanceof TFile) {
+        const content = await deps.app.vault.read(file);
+        return { uri, mimeType: 'text/markdown', text: content };
+      }
+      // No hub page built yet — fall back to the index entry as JSON.
+      const c = deps.api.queries.concept(canonical);
+      if (!c) throw new Error(`concept not found: ${canonical}`);
+      return { uri, mimeType: 'application/json', text: JSON.stringify(c, null, 2) };
+    }
+    if (uri.startsWith(NOTE_URI)) {
+      const path = decodeURIComponent(uri.slice(NOTE_URI.length));
+      const file = deps.app.vault.getAbstractFileByPath(path);
+      if (!(file instanceof TFile)) throw new Error(`note not found: ${path}`);
+      const content = await deps.app.vault.read(file);
+      return { uri, mimeType: 'text/markdown', text: content };
+    }
+    throw new Error(`unsupported resource uri: ${uri}`);
+  };
+
+  // === Axis 3: prompts ===
+  const prompts: PromptDef[] = [
+    {
+      name: 'suggest_tags',
+      description: 'Reusable prompt for proposing semantic tags on a paragraph, with the full tag schema for the given reading mode.',
+      arguments: [
+        { name: 'paragraph', description: 'The paragraph text to tag', required: true },
+        { name: 'mode', description: 'Reading mode 1–5 (default: active mode)', required: false },
+      ],
+    },
+    {
+      name: 'synthesize',
+      description: 'Reusable prompt for synthesizing a cited Markdown document from a slice of vault content.',
+      arguments: [
+        { name: 'templateName', description: 'A label for the kind of document', required: true },
+        { name: 'instruction', description: 'What to produce', required: true },
+        { name: 'slice', description: 'The vault content the model may cite', required: true },
+        { name: 'mode', description: 'Reading mode 1–5 (default: active mode)', required: false },
+      ],
+    },
+  ];
+
+  const getPrompt = (name: string, args: Record<string, unknown>): PromptResult => {
+    const mode = Number(args.mode ?? deps.activeMode());
+    if (name === 'suggest_tags') {
+      const paragraph = String(args.paragraph || '');
+      if (!paragraph) throw new Error('paragraph argument is required');
+      const text = buildTagSchemaSystemPrompt(mode) + '\n\n---\n\n' + suggestUserPrompt(paragraph, []);
+      return { description: 'Tag-suggestion prompt', messages: [{ role: 'user', content: { type: 'text', text } }] };
+    }
+    if (name === 'synthesize') {
+      const templateName = String(args.templateName || '');
+      const instruction = String(args.instruction || '');
+      const slice = String(args.slice || '');
+      if (!templateName || !instruction || !slice) {
+        throw new Error('templateName, instruction, and slice arguments are required');
+      }
+      const text = buildTagSchemaSystemPrompt(mode) + '\n\n---\n\n' + synthesisUserPrompt(templateName, instruction, slice);
+      return { description: 'Synthesis prompt', messages: [{ role: 'user', content: { type: 'text', text } }] };
+    }
+    throw new Error(`unknown prompt: ${name}`);
   };
 
   return {
@@ -263,5 +565,11 @@ export function buildMcpContext(serverVersion: string, deps: ToolDeps): ServerCo
     serverVersion,
     tools,
     handlers,
+    resources,
+    resourceTemplates,
+    readResource,
+    prompts,
+    getPrompt,
+    onChange: (cb) => deps.api.onIndexChange(cb),
   };
 }

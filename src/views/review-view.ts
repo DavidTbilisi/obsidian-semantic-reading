@@ -1,7 +1,8 @@
 import { ItemView, WorkspaceLeaf, App, Notice } from 'obsidian';
 import { VaultIndexer } from '../graph/vault-index';
 import { buildCards, Card } from '../study/card-builder';
-import { CardState, Rating, isDue, newCard, rate, DEFAULT_PARAMS } from '../study/fsrs';
+import { CardState, Rating, isDue, newCard } from '../study/fsrs';
+import { applyReview } from '../study/grade';
 
 export const REVIEW_VIEW_TYPE = 'semantic-reading-review';
 
@@ -130,20 +131,7 @@ export class ReviewView extends ItemView {
     const card = this.queue[this.currentIndex];
     if (!card) return;
     const data = this.dataAccess.get();
-    const prev = data.states[card.id] || newCard();
-    const next = rate(prev, rating, DEFAULT_PARAMS);
-    data.states[card.id] = next;
-
-    const today = ymd(new Date());
-    if (data.lastReviewDate === today) {
-      data.reviewedToday += 1;
-    } else {
-      // New day: bump streak if yesterday was the last review date.
-      const wasYesterday = data.lastReviewDate === ymd(new Date(Date.now() - 86_400_000));
-      data.streak = wasYesterday ? data.streak + 1 : 1;
-      data.reviewedToday = 1;
-      data.lastReviewDate = today;
-    }
+    applyReview(data, card.id, rating);
     await this.dataAccess.save(data);
 
     this.currentIndex += 1;
@@ -158,10 +146,6 @@ export class ReviewView extends ItemView {
     const leaf = this.app.workspace.getLeaf(false);
     await leaf.openFile(file as any);
   }
-}
-
-function ymd(d: Date): string {
-  return d.toISOString().slice(0, 10);
 }
 
 export function emptyStudyData(): StudyData {

@@ -14,7 +14,10 @@ import type SemanticReadingPlugin from '../main';
 import { canonicalize, parseBody, serializeParagraph, Paragraph, Segment } from './syntax';
 import type { ConceptEntry, Mention, VaultIndex } from './graph/vault-index';
 import { buildCards, Card } from './study/card-builder';
-import { isDue, newCard, CardState } from './study/fsrs';
+import { isDue, newCard, CardState, Rating } from './study/fsrs';
+import { applyReview } from './study/grade';
+import { applyTagInBody } from './edit/apply-tag';
+import { stripFrontmatter } from './views/cards-view';
 import type { DomainProfile } from './domains';
 import { LANGUAGE_CARD_TAGS, type TagDef } from './constants';
 
@@ -26,6 +29,34 @@ export interface DueOptions {
   language?: string;
   /** Krashen i+1 threshold (0..1, default 0.95). Cards whose paragraph context falls below are filtered out. Only applies when `language` is set. */
   minCoverage?: number;
+}
+
+/** Result of grading a card via `cards.review`. */
+export interface ReviewOutput {
+  cardId: string;
+  state: CardState;
+  due: number;            // epoch ms of the next review
+  reviewedToday: number;
+  streak: number;
+}
+
+/** Arguments for `edits.applyTag`. */
+export interface ApplyTagInput {
+  notePath: string;       // vault-relative path
+  paraIndex: number;      // 0-based paragraph index (matches Mention.paraIndex)
+  span: string;           // verbatim substring of the paragraph's plain text
+  tag: string;            // tag sigil to apply
+  note?: string;          // optional `note=` annotation
+}
+
+/** Result of `edits.applyTag`. */
+export interface ApplyTagOutput {
+  notePath: string;
+  paraIndex: number;
+  blockId: string;
+  tag: string;
+  span: string;
+  paragraph: string;      // the rewritten paragraph markup (without block id)
 }
 
 export interface SemanticReadingAPI {
@@ -72,6 +103,12 @@ export interface SemanticReadingAPI {
     due(opts?: DueOptions): Card[];
     /** Persisted FSRS state for a card id, if any. */
     state(cardId: string): CardState | undefined;
+    /**
+     * Grade a card (FSRS rating 1=Again, 2=Hard, 3=Good, 4=Easy), persist the
+     * new state, and roll the day/streak counters — the same path the review
+     * UI uses. Returns the next state and the next due timestamp.
+     */
+    review(cardId: string, rating: Rating): Promise<ReviewOutput>;
   };
 
   /**
@@ -79,6 +116,16 @@ export interface SemanticReadingAPI {
    * Fired after each incremental rebuild.
    */
   onIndexChange(cb: () => void): () => void;
+
+  /** Vault-mutating edits. Side-effecting — these write to your notes. */
+  readonly edits: {
+    /**
+     * Wrap a verbatim `span` inside paragraph `paraIndex` of `notePath` with
+     * `{{tag|…}}` markup, ensuring the paragraph carries a stable block id.
+     * Frontmatter is preserved. The indexer picks up the change on save.
+     */
+    applyTag(input: ApplyTagInput): Promise<ApplyTagOutput>;
+  };
 
   /** Domain profiles: per-note tag toolkits selected via `semantic_domain:`. */
   readonly domains: {
@@ -166,10 +213,45 @@ export function createApi(plugin: SemanticReadingPlugin, version: string): Seman
       state(cardId) {
         return study().states[cardId];
       },
+      async review(cardId, rating) {
+        if (!cardId) throw new Error('cardId is required');
+        if (![1, 2, 3, 4].includes(rating)) {
+          throw new Error('rating must be 1 (Again), 2 (Hard), 3 (Good), or 4 (Easy)');
+        }
+        const data = study();
+        const r = applyReview(data, cardId, rating);
+        await plugin.saveSettings();
+        return {
+          cardId,
+          state: r.state,
+          due: r.state.due,
+          reviewedToday: r.reviewedToday,
+          streak: r.streak,
+        };
+      },
     },
 
     onIndexChange(cb) {
       return indexer().subscribe('changed', cb);
+    },
+
+    edits: {
+      async applyTag(input) {
+        const { notePath, paraIndex, span, tag, note } = input;
+        if (!notePath) throw new Error('notePath is required');
+        if (!span) throw new Error('span is required');
+        if (!/^[A-Za-z][A-Za-z0-9]*$/.test(tag || '')) {
+          throw new Error(`invalid tag sigil ${JSON.stringify(tag)} — letters/digits, must start with a letter`);
+        }
+        const file = plugin.app.vault.getAbstractFileByPath(notePath);
+        if (!(file instanceof TFile)) throw new Error(`note not found: ${notePath}`);
+        const content = await plugin.app.vault.read(file);
+        const stripped = stripFrontmatter(content);
+        const prefix = content.slice(0, content.length - stripped.length);
+        const r = applyTagInBody(stripped, { paraIndex, span, tag, note });
+        await plugin.app.vault.modify(file, prefix + r.body);
+        return { notePath, paraIndex, blockId: r.blockId, tag, span, paragraph: r.paragraph };
+      },
     },
 
     domains: {

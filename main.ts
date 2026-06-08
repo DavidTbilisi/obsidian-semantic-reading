@@ -140,6 +140,8 @@ export default class SemanticReadingPlugin extends Plugin {
       ai: this.ai,
       conceptsFolder: () => this.settings.conceptsFolder,
       activeMode: () => this.activeMode(),
+      rebuildHubs: () => rebuildHubs(this.app, this.indexer.get(), this.hubOptions()),
+      exportMarkdown: (notePath) => this.exportMarkdownByPath(notePath),
     }));
 
     this.registerEditorExtension(semanticReadingExtension);
@@ -221,6 +223,7 @@ export default class SemanticReadingPlugin extends Plugin {
     // Kick the indexer once layout is ready (avoids races on plugin enable).
     this.app.workspace.onLayoutReady(() => {
       this.indexer.init().catch(err => console.error('indexer init failed', err));
+      this.lastMcpKey = JSON.stringify(this.settings.mcp);
       this.mcp.start(this.settings.mcp).catch(err => {
         console.error('MCP server failed to start', err);
         new Notice(`MCP server failed: ${(err as Error).message}`);
@@ -242,6 +245,7 @@ export default class SemanticReadingPlugin extends Plugin {
     this.settings.domains = Array.isArray(saved?.domains) ? saved.domains : DOMAIN_PRESETS;
     this.settings.tasksPush = Object.assign({}, DEFAULT_TASKS_PUSH_OPTIONS, saved?.tasksPush);
     this.settings.readwise = Object.assign({}, DEFAULT_READWISE_OPTIONS, saved?.readwise);
+    this.settings.mcp = Object.assign({}, DEFAULT_MCP_OPTIONS, saved?.mcp);
     this.settings.tagKeyBindings = (saved?.tagKeyBindings && typeof saved.tagKeyBindings === 'object')
       ? saved.tagKeyBindings as Record<string, string>
       : {};
@@ -253,14 +257,20 @@ export default class SemanticReadingPlugin extends Plugin {
     this.tagbar?.setMode(this.activeMode());
     this.ai?.update(this.settings.ai);
     this.indexer?.setHubFolders(this.hubFolders());
-    // Restart MCP if its config changed (start() does its own stop()-first).
-    if (this.mcp) {
+    // Restart MCP only when its own config changed (start() does its own
+    // stop()-first). Crucial for sr_review_card: grading a card via MCP calls
+    // saveSettings() to persist study state, and we must NOT bounce the server
+    // mid-request just because an unrelated setting was written.
+    const mcpKey = JSON.stringify(this.settings.mcp);
+    if (this.mcp && mcpKey !== this.lastMcpKey) {
+      this.lastMcpKey = mcpKey;
       this.mcp.start(this.settings.mcp).catch(err => {
         console.error('MCP server restart failed', err);
         new Notice(`MCP server failed: ${(err as Error).message}`);
       });
     }
   }
+  private lastMcpKey = '';
 
   private lastDomainName: string | null = null;
   private maybeSwitchDomain(): void {
@@ -648,7 +658,7 @@ export default class SemanticReadingPlugin extends Plugin {
     await rebuildFrontmatter(this.app, file, paragraphs, mode, this.settings.customTags);
   }
 
-  private async exportMarkdown(file: TFile): Promise<void> {
+  private async exportMarkdown(file: TFile): Promise<string> {
     const body = await this.app.vault.read(file);
     const paragraphs = parseBody(stripFrontmatter(body));
     const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
@@ -659,6 +669,15 @@ export default class SemanticReadingPlugin extends Plugin {
       : safeName(file.basename) + '.annotated.md';
     await this.writeOrReplace(targetPath, md);
     new Notice('Exported ' + targetPath);
+    return targetPath;
+  }
+
+  // Path-addressed wrapper for the sr_export_markdown MCP tool.
+  private async exportMarkdownByPath(notePath: string): Promise<{ path: string }> {
+    const file = this.app.vault.getAbstractFileByPath(notePath);
+    if (!(file instanceof TFile)) throw new Error(`note not found: ${notePath}`);
+    const path = await this.exportMarkdown(file);
+    return { path };
   }
 
   private pickKindleFile(): void {
@@ -1073,7 +1092,7 @@ class SemanticReadingSettingTab extends PluginSettingTab {
 
     containerEl.createEl('h2', { text: 'MCP server' });
     containerEl.createEl('p', {
-      text: 'Expose the vault tag index as MCP tools so Claude Desktop / Cursor / VS Code (or any MCP client) can query and call AI Suggest. JSON-RPC 2.0 over HTTP, bound to 127.0.0.1 only. Desktop Obsidian only — no-op on mobile.',
+      text: 'Expose the vault tag index as MCP tools, resources (concept hubs, open questions, notes), and prompts (tag-suggest, synthesis) so Claude Desktop / Cursor / VS Code (or any MCP client) can query, review, and tag. JSON-RPC 2.0 over HTTP with an SSE channel for change notifications, bound to 127.0.0.1 only. Desktop Obsidian only — no-op on mobile.',
       cls: 'setting-item-description',
     });
     new Setting(containerEl)
@@ -1104,6 +1123,13 @@ class SemanticReadingSettingTab extends PluginSettingTab {
         t.setPlaceholder('(no auth)');
         t.setValue(this.plugin.settings.mcp.token);
         t.onChange(async v => { this.plugin.settings.mcp.token = v.trim(); await this.plugin.saveSettings(); });
+      });
+    new Setting(containerEl)
+      .setName('Allow write tools')
+      .setDesc('Off by default. When off, read-only tools work but write tools (sr_apply_tag, sr_review_card, sr_rebuild_hubs, sr_export_markdown) are hidden and refused — clients can read your vault but not change it.')
+      .addToggle(t => {
+        t.setValue(this.plugin.settings.mcp.allowWrites);
+        t.onChange(async v => { this.plugin.settings.mcp.allowWrites = v; await this.plugin.saveSettings(); });
       });
     new Setting(containerEl)
       .setName('Connection snippet')
