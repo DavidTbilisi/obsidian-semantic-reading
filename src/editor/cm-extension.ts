@@ -16,7 +16,7 @@ class TagLabelWidget extends WidgetType {
     super();
   }
   toDOM(): HTMLElement {
-    const sup = document.createElement('sup');
+    const sup = activeDocument.createElement('sup');
     sup.className = 'sr-tlabel';
     sup.textContent = this.tag;
     sup.setAttr('aria-hidden', 'true');

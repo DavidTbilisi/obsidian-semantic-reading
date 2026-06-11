@@ -42,14 +42,16 @@ export async function runSynthesis(
   await ensureFolder(app, folder);
   const path = normalizePath(`${folder}/${stem}.md`);
   const body = renderOutput(template, arg, result.text, slice.body, result);
-  let file = app.vault.getAbstractFileByPath(path);
-  if (file instanceof TFile) {
-    await app.vault.modify(file, body);
+  const existing = app.vault.getAbstractFileByPath(path);
+  let file: TFile;
+  if (existing instanceof TFile) {
+    await app.vault.modify(existing, body);
+    file = existing;
   } else {
     file = await app.vault.create(path, body);
   }
   new Notice(`Synthesis written to ${path}`);
-  return file as TFile;
+  return file;
 }
 
 function renderOutput(

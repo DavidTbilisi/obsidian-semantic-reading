@@ -50,7 +50,9 @@ export interface ToolDefinition {
   scope?: ToolScope;   // defaults to 'read'; 'write' tools are gated by allowWrites
 }
 
-export type ToolHandler = (args: Record<string, unknown>) => Promise<unknown> | unknown;
+// `unknown` already subsumes Promise<unknown>, so a single `unknown` return
+// covers both sync and async handlers (callers await the result regardless).
+export type ToolHandler = (args: Record<string, unknown>) => unknown;
 
 // MCP resources + prompts (axis 3). Resources expose vault content (concept
 // hubs, open questions, notes) for direct attachment; prompts expose the AI

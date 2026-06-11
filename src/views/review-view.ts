@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, App, Notice } from 'obsidian';
+import { ItemView, WorkspaceLeaf, Notice, TFile } from 'obsidian';
 import { VaultIndexer } from '../graph/vault-index';
 import { buildCards, Card } from '../study/card-builder';
 import { CardState, Rating, isDue, newCard } from '../study/fsrs';
@@ -37,7 +37,7 @@ export class ReviewView extends ItemView {
   getIcon(): string { return 'graduation-cap'; }
 
   async onOpen(): Promise<void> {
-    this.registerDomEvent(document, 'keydown', this.keyHandler);
+    this.registerDomEvent(activeDocument, 'keydown', this.keyHandler);
     this.registerEvent(this.indexer.on('changed', () => this.rebuildQueue()));
     this.rebuildQueue();
   }
@@ -96,7 +96,7 @@ export class ReviewView extends ItemView {
       const link = src.createEl('a', { text: `Open ${card.source.notePath}#^${card.source.blockId}` });
       link.onclick = (e) => {
         e.preventDefault();
-        this.openSource(card);
+        void this.openSource(card);
       };
 
       const buttons = cardBox.createDiv({ cls: 'sr-review-ratings' });
@@ -123,7 +123,7 @@ export class ReviewView extends ItemView {
     if (e.key === ' ' && !this.showingBack) { e.preventDefault(); this.showingBack = true; this.render(); }
     else if (this.showingBack && /^[1-4]$/.test(e.key)) {
       e.preventDefault();
-      this.rateCurrent(parseInt(e.key, 10) as Rating);
+      void this.rateCurrent(parseInt(e.key, 10) as Rating);
     }
   }
 
@@ -142,9 +142,9 @@ export class ReviewView extends ItemView {
   private async openSource(card: Card): Promise<void> {
     const path = card.source.notePath;
     const file = this.app.vault.getAbstractFileByPath(path);
-    if (!file) { new Notice('Source note not found'); return; }
+    if (!(file instanceof TFile)) { new Notice('Source note not found'); return; }
     const leaf = this.app.workspace.getLeaf(false);
-    await leaf.openFile(file as any);
+    await leaf.openFile(file);
   }
 }
 

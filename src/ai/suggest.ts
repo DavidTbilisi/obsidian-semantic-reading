@@ -1,4 +1,4 @@
-import { App, Editor, MarkdownView, Modal, Notice } from 'obsidian';
+import { App, MarkdownView, Modal, Notice } from 'obsidian';
 import { AIClient, TagSuggestion } from './client';
 import {
   applyTagRange,

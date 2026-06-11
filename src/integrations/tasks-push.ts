@@ -43,7 +43,7 @@ export interface TasksPushDeps {
   resolveDomain(notePath: string): string | null;
   // For Things: launch the x-callback-url. Defaulted to window.open so tests
   // can override.
-  openUrl?(url: string): void;
+  openUrl?: (url: string) => void;
 }
 
 function sridLabel(blockId: string, notePath: string): string {

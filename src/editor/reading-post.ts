@@ -11,22 +11,22 @@ export const semanticReadingPostProcessor: MarkdownPostProcessor = (el) => {
     const re = new RegExp(MARK_REGEX.source, 'g');
     let m: RegExpExecArray | null;
     let last = 0;
-    const frag = document.createDocumentFragment();
+    const frag = activeDocument.createDocumentFragment();
     let matched = false;
     while ((m = re.exec(raw)) !== null) {
       matched = true;
-      if (m.index > last) frag.appendChild(document.createTextNode(raw.slice(last, m.index)));
+      if (m.index > last) frag.appendChild(activeDocument.createTextNode(raw.slice(last, m.index)));
       const tag = m[1];
       const text = m[2];
       const note = m[3];
-      const span = document.createElement('span');
+      const span = activeDocument.createElement('span');
       span.className = 'sr-tspan sr-tg-' + cssTag(tag);
       if (note) {
         span.classList.add('sr-has-note');
         span.title = note;
       }
       span.textContent = text;
-      const sup = document.createElement('sup');
+      const sup = activeDocument.createElement('sup');
       sup.className = 'sr-tlabel';
       sup.textContent = tag;
       span.appendChild(sup);
@@ -34,13 +34,13 @@ export const semanticReadingPostProcessor: MarkdownPostProcessor = (el) => {
       last = m.index + m[0].length;
     }
     if (!matched) return;
-    if (last < raw.length) frag.appendChild(document.createTextNode(raw.slice(last)));
+    if (last < raw.length) frag.appendChild(activeDocument.createTextNode(raw.slice(last)));
     textNode.parentNode?.replaceChild(frag, textNode);
   });
 };
 
 function walkTextNodes(root: Node, fn: (n: Text) => void): void {
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const walker = activeDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   const collected: Text[] = [];
   let n: Node | null;
   while ((n = walker.nextNode())) {

@@ -72,13 +72,15 @@ export class SynthesizeModal extends Modal {
 
     const actions = contentEl.createDiv({ cls: 'sr-modal-actions' });
     const runBtn = actions.createEl('button', { cls: 'mod-cta', text: 'Run synthesis' });
-    runBtn.onclick = async () => {
+    runBtn.onclick = () => {
       if (!slice) { new Notice('Nothing to synthesize.'); return; }
       this.close();
-      const file = await runSynthesis(this.app, this.ai, this.indexer, this.template, this.arg || undefined, this.mode, {
-        outputFolder: this.outputFolder,
-      });
-      if (file) this.app.workspace.getLeaf(false).openFile(file);
+      void (async () => {
+        const file = await runSynthesis(this.app, this.ai, this.indexer, this.template, this.arg || undefined, this.mode, {
+          outputFolder: this.outputFolder,
+        });
+        if (file) void this.app.workspace.getLeaf(false).openFile(file);
+      })();
     };
     actions.createEl('button', { text: 'Cancel' }).onclick = () => this.close();
   }

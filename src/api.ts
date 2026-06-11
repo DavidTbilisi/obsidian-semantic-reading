@@ -277,7 +277,7 @@ export function createApi(plugin: SemanticReadingPlugin, version: string): Seman
 
 function readDomainName(fm: Record<string, unknown> | undefined): string | null {
   if (!fm) return null;
-  const d = (fm as Record<string, unknown>).semantic_domain;
+  const d = fm.semantic_domain;
   return typeof d === 'string' && d.trim() ? d.trim() : null;
 }
 

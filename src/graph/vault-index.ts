@@ -85,12 +85,12 @@ export class VaultIndexer extends Component {
 
     this.registerEvent(this.app.vault.on('modify', (f) => {
       if (f instanceof TFile && f.extension === 'md' && !this.isHub(f.path)) {
-        this.scanAndRebuild(f);
+        void this.scanAndRebuild(f);
       }
     }));
     this.registerEvent(this.app.vault.on('create', (f) => {
       if (f instanceof TFile && f.extension === 'md' && !this.isHub(f.path)) {
-        this.scanAndRebuild(f);
+        void this.scanAndRebuild(f);
       }
     }));
     this.registerEvent(this.app.vault.on('delete', (f) => {
@@ -255,7 +255,7 @@ function basename(p: string): string {
 // into L2 indexing and per-language queries.
 function readLanguage(fm: Record<string, unknown> | undefined): string | undefined {
   if (!fm) return undefined;
-  const raw = (fm as Record<string, unknown>).language;
+  const raw = fm.language;
   if (typeof raw !== 'string') return undefined;
   const trimmed = raw.trim().toLowerCase();
   return trimmed || undefined;

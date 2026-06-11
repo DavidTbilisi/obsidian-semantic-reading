@@ -48,7 +48,7 @@ export class PdfHighlightLayer extends Component {
   }
 
   onunload(): void {
-    document.querySelectorAll('.sr-pdf-highlight').forEach(el => el.remove());
+    activeDocument.querySelectorAll('.sr-pdf-highlight').forEach(el => el.remove());
   }
 
   private attachAll(): void {
@@ -192,7 +192,7 @@ function paintPage(pageEl: HTMLElement, entries: HighlightEntry[]): void {
       // Range.getClientRects() can emit subpixel-thin slivers for empty fragments
       // between text nodes — skip anything under 1 CSS px on either axis.
       if (r.width < 1 || r.height < 1) continue;
-      const overlay = document.createElement('div');
+      const overlay = activeDocument.createElement('div');
       overlay.className = 'sr-pdf-highlight sr-tg-' + cssTag(entry.tag);
       overlay.setAttribute('data-block-id', entry.blockId);
       overlay.style.left = (r.left - pageRect.left) + 'px';
@@ -214,7 +214,7 @@ function paintRectEntry(pageEl: HTMLElement, pageRect: DOMRect, entry: Highlight
   const width = (widthPct / 100) * pageRect.width;
   const height = (heightPct / 100) * pageRect.height;
   if (width < 1 || height < 1) return;
-  const overlay = document.createElement('div');
+  const overlay = activeDocument.createElement('div');
   overlay.className = 'sr-pdf-highlight sr-pdf-highlight-rect sr-tg-' + cssTag(entry.tag);
   overlay.setAttribute('data-block-id', entry.blockId);
   overlay.style.left = left + 'px';
@@ -232,7 +232,7 @@ interface FlatTextInfo {
 }
 
 function buildFlatText(root: Element): FlatTextInfo | null {
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const walker = activeDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   const nodes: Text[] = [];
   const starts: number[] = [];
   let flat = '';
@@ -269,7 +269,7 @@ function rangeFromOffsets(info: FlatTextInfo, start: number, end: number): Range
   const startLoc = locateOffset(info, start);
   const endLoc = locateOffset(info, end);
   if (!startLoc || !endLoc) return null;
-  const range = document.createRange();
+  const range = activeDocument.createRange();
   try {
     range.setStart(startLoc.node, startLoc.offset);
     range.setEnd(endLoc.node, endLoc.offset);

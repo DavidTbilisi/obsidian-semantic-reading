@@ -182,12 +182,12 @@ describe('Tagbar — showWithCommit commit hook', () => {
     const commit = vi.fn();
     const { tb, el } = makeTagbar(() => 'top-right');
     tb.showWithCommit(0, 0, commit);
-    expect(el.style.display).toBe('');
+    expect(el.classList.contains('is-hidden')).toBe(false);
 
     // Simulate the keyboard path: pressing a built-in shortcut key.
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd' }));
     expect(commit).toHaveBeenCalledWith('Def');
-    expect(el.style.display).toBe('none');
+    expect(el.classList.contains('is-hidden')).toBe(true);
   });
 
   it('Escape hides the tagbar without invoking commit', () => {
@@ -196,7 +196,7 @@ describe('Tagbar — showWithCommit commit hook', () => {
     tb.showWithCommit(0, 0, commit);
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     expect(commit).not.toHaveBeenCalled();
-    expect(el.style.display).toBe('none');
+    expect(el.classList.contains('is-hidden')).toBe(true);
   });
 
   it('ignores keys outside the active mode', () => {
@@ -227,7 +227,7 @@ describe('Tagbar — visibility lifecycle', () => {
   it('is hidden initially', () => {
     const { tb, el } = makeTagbar(() => 'auto');
     expect(tb.isVisible()).toBe(false);
-    expect(el.style.display).toBe('none');
+    expect(el.classList.contains('is-hidden')).toBe(true);
   });
 
   it('isVisible() is true after show, false after hide', () => {
@@ -273,7 +273,7 @@ describe('Tagbar — showFor edge cases', () => {
     const pane = makePane({ left: 0, top: 0, width: 1000, height: 800 });
     const view = makeView(pane, '');
     tb.showFor(view, 500, 400);
-    expect(el.style.display).toBe('none');
+    expect(el.classList.contains('is-hidden')).toBe(true);
   });
 
   it('does not show when from === to (caret only)', () => {
@@ -288,7 +288,7 @@ describe('Tagbar — showFor edge cases', () => {
       contentEl: pane,
     };
     tb.showFor(view, 500, 400);
-    expect(el.style.display).toBe('none');
+    expect(el.classList.contains('is-hidden')).toBe(true);
   });
 });
 
@@ -472,7 +472,7 @@ describe('Tagbar — outside click', () => {
     outside.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
     // Still hidden, still no commit, no errors.
     expect(tb.isVisible()).toBe(false);
-    expect(el.style.display).toBe('none');
+    expect(el.classList.contains('is-hidden')).toBe(true);
   });
 
   it('does not hide when the mousedown originates inside the tagbar', () => {
@@ -511,7 +511,7 @@ describe('Tagbar — invisible position (shortcuts only)', () => {
     const { tb, el } = makeTagbar(() => 'invisible');
     const pane = makePane({ left: 0, top: 0, width: 1000, height: 800 });
     tb.showFor(makeView(pane), 500, 400);
-    expect(el.style.display).toBe('none');
+    expect(el.classList.contains('is-hidden')).toBe(true);
     expect(el.querySelectorAll('.sr-tagbar-btn').length).toBe(0);
   });
 
@@ -519,7 +519,7 @@ describe('Tagbar — invisible position (shortcuts only)', () => {
     const commit = vi.fn();
     const { tb, el } = makeTagbar(() => 'invisible');
     tb.showWithCommit(0, 0, commit);
-    expect(el.style.display).toBe('none');
+    expect(el.classList.contains('is-hidden')).toBe(true);
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd' }));
     expect(commit).toHaveBeenCalledWith('Def');
   });

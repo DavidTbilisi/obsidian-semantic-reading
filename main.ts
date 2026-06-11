@@ -163,7 +163,7 @@ export default class SemanticReadingPlugin extends Plugin {
 
     // Tagbar on selection — markdown editors, plus PDF views when enabled.
     if (this.settings.pdfAnnotationsEnabled) installPdfRectDragTracking();
-    this.registerDomEvent(document, 'mouseup', (e: MouseEvent) => {
+    this.registerDomEvent(activeDocument, 'mouseup', (e: MouseEvent) => {
       if ((e.target as HTMLElement)?.closest('.sr-tagbar')) return;
       const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
       if (mdView && mdView.editor) {
@@ -423,7 +423,7 @@ export default class SemanticReadingPlugin extends Plugin {
       checkCallback: (checking) => {
         const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
         if (!file) return false;
-        if (!checking) this.insertRelationMermaid(file);
+        if (!checking) void this.insertRelationMermaid(file);
         return true;
       },
     });
@@ -434,7 +434,7 @@ export default class SemanticReadingPlugin extends Plugin {
       checkCallback: (checking) => {
         const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
         if (!file) return false;
-        if (!checking) this.exportRelationCanvas(file);
+        if (!checking) void this.exportRelationCanvas(file);
         return true;
       },
     });
@@ -565,7 +565,7 @@ export default class SemanticReadingPlugin extends Plugin {
         const view = this.app.workspace.getActiveViewOfType(MarkdownView);
         const file = view?.file;
         if (!file) return false;
-        if (!checking) this.syncFrontmatter(file);
+        if (!checking) void this.syncFrontmatter(file);
         return true;
       },
     });
@@ -576,7 +576,7 @@ export default class SemanticReadingPlugin extends Plugin {
       checkCallback: (checking) => {
         const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
         if (!file) return false;
-        if (!checking) this.exportMarkdown(file);
+        if (!checking) void this.exportMarkdown(file);
         return true;
       },
     });
@@ -587,7 +587,7 @@ export default class SemanticReadingPlugin extends Plugin {
       checkCallback: (checking) => {
         const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
         if (!file) return false;
-        if (!checking) this.exportAnki(file);
+        if (!checking) void this.exportAnki(file);
         return true;
       },
     });
@@ -680,7 +680,7 @@ export default class SemanticReadingPlugin extends Plugin {
   }
 
   private pickKindleFile(): void {
-    const input = document.createElement('input');
+    const input = activeDocument.createElement('input');
     input.type = 'file';
     input.accept = '.txt,text/plain';
     input.onchange = async () => {
@@ -743,12 +743,12 @@ export default class SemanticReadingPlugin extends Plugin {
 
   private async openView(type: string): Promise<void> {
     const existing = this.app.workspace.getLeavesOfType(type);
-    if (existing.length) { this.app.workspace.revealLeaf(existing[0]); return; }
+    if (existing.length) { void this.app.workspace.revealLeaf(existing[0]); return; }
     const isWide = type === REVIEW_VIEW_TYPE || type === VAULT_ATLAS_VIEW_TYPE;
     const leaf = isWide ? this.app.workspace.getLeaf('tab') : this.app.workspace.getRightLeaf(false);
     if (leaf) {
       await leaf.setViewState({ type, active: true });
-      this.app.workspace.revealLeaf(leaf);
+      void this.app.workspace.revealLeaf(leaf);
     }
   }
 
@@ -1344,7 +1344,7 @@ class SemanticReadingSettingTab extends PluginSettingTab {
             e.preventDefault();
             if (currentModes.has(m)) currentModes.delete(m); else currentModes.add(m);
             const next = [1, 2, 3, 4, 5].filter(n => currentModes.has(n));
-            commit({ ...t, inModes: next.length === 5 || next.length === 0 ? undefined : next }, idx);
+            void commit({ ...t, inModes: next.length === 5 || next.length === 0 ? undefined : next }, idx);
             draw();
           };
         });
@@ -1584,7 +1584,7 @@ class SemanticReadingSettingTab extends PluginSettingTab {
       resetBtn.title = 'Replace all domain profiles with the bundled presets. This overwrites your edits.';
       resetBtn.onclick = async () => {
         expanded.clear();
-        this.plugin.settings.domains = JSON.parse(JSON.stringify(DOMAIN_PRESETS));
+        this.plugin.settings.domains = JSON.parse(JSON.stringify(DOMAIN_PRESETS)) as DomainProfile[];
         await this.plugin.saveSettings();
         draw();
       };
