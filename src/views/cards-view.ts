@@ -1,6 +1,7 @@
 import { ItemView, WorkspaceLeaf, MarkdownView, TFile } from 'obsidian';
 import { parseBody, countTags, flatExtracts, Paragraph } from '../syntax';
 import { TAGS, CARD_GROUPS, FAMILIES, FamilyName, cssTag, tagOrder } from '../constants';
+import { tintCustomTag } from '../custom-tags';
 
 export const CARDS_VIEW_TYPE = 'semantic-reading-cards';
 
@@ -111,6 +112,7 @@ export class CardsView extends ItemView {
       const chipRow = card.createDiv({ cls: 'sr-card-chips' });
       Object.keys(counts).forEach(t => {
         const chip = chipRow.createSpan({ cls: 'sr-chip sr-tg-' + cssTag(t) });
+        tintCustomTag(chip, t);
         chip.setText(t + ' · ' + counts[t]);
       });
       CARD_GROUPS.forEach(g => {
@@ -120,7 +122,8 @@ export class CardsView extends ItemView {
         sec.createEl('div', { cls: 'sr-card-section-label', text: g.label });
         items.forEach(s => {
           const row = sec.createDiv({ cls: 'sr-card-row' });
-          row.createSpan({ cls: 'sr-row-tag sr-tg-' + cssTag(s.tag!), text: s.tag! });
+          const rowTag = row.createSpan({ cls: 'sr-row-tag sr-tg-' + cssTag(s.tag!), text: s.tag! });
+          tintCustomTag(rowTag, s.tag!);
           row.createSpan({ cls: 'sr-row-text', text: s.text });
           if (s.note) row.createSpan({ cls: 'sr-row-note', text: '— ' + s.note });
         });
@@ -152,7 +155,8 @@ export class CardsView extends ItemView {
         if (!tagItems.length) return;
         const tagSec = sec.createDiv({ cls: 'sr-sheet-tag' });
         const head = tagSec.createDiv({ cls: 'sr-sheet-tag-head' });
-        head.createSpan({ cls: 'sr-chip sr-tg-' + cssTag(t), text: t });
+        const headChip = head.createSpan({ cls: 'sr-chip sr-tg-' + cssTag(t), text: t });
+        tintCustomTag(headChip, t);
         head.createSpan({ cls: 'sr-sheet-tag-name', text: TAGS[t].name });
         tagItems.forEach(it => {
           const row = tagSec.createDiv({ cls: 'sr-sheet-row' });
@@ -185,7 +189,8 @@ export class CardsView extends ItemView {
       sec.createEl('h4', { text: 'Reader notes' });
       notes.forEach(n => {
         const row = sec.createDiv({ cls: 'sr-sheet-row' });
-        row.createSpan({ cls: 'sr-chip sr-tg-' + cssTag(n.tag), text: n.tag });
+        const noteChip = row.createSpan({ cls: 'sr-chip sr-tg-' + cssTag(n.tag), text: n.tag });
+        tintCustomTag(noteChip, n.tag);
         row.createSpan({ cls: 'sr-sheet-text', text: n.text });
         const noteEl = row.createSpan({ cls: 'sr-row-note', text: '— ' + n.note });
         noteEl.setAttr('title', n.note || '');

@@ -1,6 +1,7 @@
 import { MarkdownPostProcessor } from 'obsidian';
 import { MARK_REGEX } from '../syntax';
 import { cssTag } from '../constants';
+import { tintCustomTag } from '../custom-tags';
 
 // Walks rendered DOM text nodes inside a block and replaces {{Tag|text}} occurrences
 // with a styled span + superscript label.
@@ -21,6 +22,7 @@ export const semanticReadingPostProcessor: MarkdownPostProcessor = (el) => {
       const note = m[3];
       const span = activeDocument.createElement('span');
       span.className = 'sr-tspan sr-tg-' + cssTag(tag);
+      tintCustomTag(span, tag);
       if (note) {
         span.classList.add('sr-has-note');
         span.title = note;

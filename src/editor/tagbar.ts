@@ -2,6 +2,7 @@ import { Editor, MarkdownView } from 'obsidian';
 import {
   TAGS, MODES, FAMILIES, cssTag, tagOrder, tagForKey,
 } from '../constants';
+import { tintCustomTag } from '../custom-tags';
 import {
   applyTagRange,
   blockIdFor,
@@ -177,6 +178,7 @@ export class Tagbar {
           attr: { 'data-tag': t, title: TAGS[t].name + ' — ' + TAGS[t].desc },
         });
         btn.textContent = t;
+        tintCustomTag(btn, t);
         btn.onclick = (e) => { e.preventDefault(); this.apply(t); };
       });
     });

@@ -1,6 +1,7 @@
 import { App, SuggestModal, TFile } from 'obsidian';
 import { VaultIndexer, Mention } from '../graph/vault-index';
 import { TAGS, cssTag } from '../constants';
+import { tintCustomTag } from '../custom-tags';
 
 interface SearchItem {
   tag: string;
@@ -57,7 +58,8 @@ export class SearchByTagModal extends SuggestModal<SearchItem> {
 
   renderSuggestion(item: SearchItem, el: HTMLElement): void {
     const row = el.createDiv({ cls: 'sr-search-row' });
-    row.createSpan({ cls: 'sr-chip sr-tg-' + cssTag(item.tag), text: item.tag });
+    const chip = row.createSpan({ cls: 'sr-chip sr-tg-' + cssTag(item.tag), text: item.tag });
+    tintCustomTag(chip, item.tag);
     row.createSpan({ cls: 'sr-search-text', text: truncate(item.text, 80) });
     row.createSpan({
       cls: 'sr-search-note',

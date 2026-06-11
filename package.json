@@ -1,6 +1,6 @@
 {
   "name": "obsidian-semantic-reading",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "description": "Semantic Reading plugin for Obsidian",
   "main": "main.js",
   "scripts": {
