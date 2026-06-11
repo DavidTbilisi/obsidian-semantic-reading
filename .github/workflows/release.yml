@@ -6,7 +6,9 @@ on:
       - "*.*.*"
 
 permissions:
-  contents: write
+  contents: write       # create the release + upload assets
+  id-token: write       # OIDC identity used to sign the attestation
+  attestations: write   # record build-provenance attestations
 
 jobs:
   release:
@@ -22,8 +24,31 @@ jobs:
       - name: Install
         run: npm install --legacy-peer-deps
 
+      - name: Test
+        run: npm test
+
       - name: Build
         run: npm run build
+
+      - name: Verify tag matches manifest version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          MANIFEST_VERSION="$(node -p "require('./manifest.json').version")"
+          if [ "$TAG" != "$MANIFEST_VERSION" ]; then
+            echo "::error::Tag $TAG does not match manifest version $MANIFEST_VERSION"
+            exit 1
+          fi
+
+      # Cryptographic build-provenance for the released artifacts, so users can
+      # verify they were built from this repo in CI:
+      #   gh attestation verify main.js --repo DavidTbilisi/obsidian-semantic-reading
+      - name: Generate artifact attestations
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            main.js
+            styles.css
 
       - name: Create or update GitHub release
         env:
@@ -35,6 +60,6 @@ jobs:
           else
             gh release create "$TAG" \
               --title "$TAG" \
-              --notes "See README for details." \
+              --notes "Built in CI with artifact attestations. Verify with: gh attestation verify main.js --repo $GITHUB_REPOSITORY" \
               main.js manifest.json styles.css
           fi
