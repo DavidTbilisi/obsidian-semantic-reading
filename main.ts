@@ -783,7 +783,7 @@ class SemanticReadingSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    containerEl.createEl('h2', { text: 'Reading' });
+    new Setting(containerEl).setName('Reading').setHeading();
     new Setting(containerEl)
       .setName('Default reading mode')
       .setDesc('Which tag palette to show in the tagbar. Override per-note via `semantic_mode:` frontmatter.')
@@ -827,7 +827,7 @@ class SemanticReadingSettingTab extends PluginSettingTab {
 
     this.renderTagKeyBindings(containerEl);
 
-    containerEl.createEl('h2', { text: 'Knowledge graph' });
+    new Setting(containerEl).setName('Knowledge graph').setHeading();
     new Setting(containerEl)
       .setName('Concepts folder')
       .setDesc('Where auto-generated concept hub pages live.')
@@ -850,7 +850,7 @@ class SemanticReadingSettingTab extends PluginSettingTab {
         t.onChange(async v => { this.plugin.settings.autoBuildHubs = v; await this.plugin.saveSettings(); });
       });
 
-    containerEl.createEl('h2', { text: 'AI co-reader' });
+    new Setting(containerEl).setName('AI co-reader').setHeading();
     new Setting(containerEl)
       .setName('Enable AI features')
       .setDesc('Tag suggestion, consistency check, synthesis. Requires an Anthropic API key.')
@@ -882,7 +882,7 @@ class SemanticReadingSettingTab extends PluginSettingTab {
         t.onChange(async v => { this.plugin.settings.ai.synthesisModel = v.trim() || 'claude-opus-4-7'; await this.plugin.saveSettings(); });
       });
 
-    containerEl.createEl('h2', { text: 'Synthesis' });
+    new Setting(containerEl).setName('Synthesis').setHeading();
     new Setting(containerEl)
       .setName('Synthesis output folder')
       .setDesc('Where generated documents are written.')
@@ -891,7 +891,7 @@ class SemanticReadingSettingTab extends PluginSettingTab {
         t.onChange(async v => { this.plugin.settings.synthesisFolder = v || 'Synthesis'; await this.plugin.saveSettings(); });
       });
 
-    containerEl.createEl('h2', { text: 'Custom tags' });
+    new Setting(containerEl).setName('Custom tags').setHeading();
     containerEl.createEl('p', {
       text: 'Add tags beyond the built-in 19. They appear in the tagbar, the cards/sheet/gaps views, exports, and AI prompts. Sigils starting with a built-in name are rejected. Notes that use a custom tag automatically embed a `semantic_tags_def` block in their frontmatter, so other vaults can import the definition via the "Import custom tags from current note" command.',
       cls: 'setting-item-description',
@@ -902,14 +902,14 @@ class SemanticReadingSettingTab extends PluginSettingTab {
       (next) => { this.plugin.settings.customTags = next; },
     );
 
-    containerEl.createEl('h2', { text: 'Domains' });
+    new Setting(containerEl).setName('Domains').setHeading();
     containerEl.createEl('p', {
       text: 'Per-note tag profiles. Activate a profile in any note by adding `semantic_domain: <name>` to its frontmatter. Each profile carries its own tags and a merge mode: add (built-ins + profile), subset (only listed built-ins + profile), or replace (only profile).',
       cls: 'setting-item-description',
     });
     this.renderDomainsEditor(containerEl);
 
-    containerEl.createEl('h2', { text: 'Review queue' });
+    new Setting(containerEl).setName('Review queue').setHeading();
     new Setting(containerEl)
       .setName('Reset all review state')
       .setDesc('Forget FSRS scheduling for every card. Cannot be undone.')
@@ -922,7 +922,7 @@ class SemanticReadingSettingTab extends PluginSettingTab {
         });
       });
 
-    containerEl.createEl('h2', { text: 'Anki sync (AnkiConnect)' });
+    new Setting(containerEl).setName('Anki sync (AnkiConnect)').setHeading();
     containerEl.createEl('p', {
       text: 'Requires the AnkiConnect add-on running in Anki desktop. Run "Sync cards to Anki (AnkiConnect)" from the command palette to push Def + Q cards.',
       cls: 'setting-item-description',
@@ -942,7 +942,7 @@ class SemanticReadingSettingTab extends PluginSettingTab {
         t.onChange(async v => { this.plugin.settings.anki.deckName = v.trim() || 'Semantic Reading'; await this.plugin.saveSettings(); });
       });
 
-    containerEl.createEl('h2', { text: 'PDF annotations' });
+    new Setting(containerEl).setName('PDF annotations').setHeading();
     new Setting(containerEl)
       .setName('Enable tagging in PDF views')
       .setDesc('When selecting text inside an Obsidian PDF view, the tagbar appears just like in markdown. Picks are saved to a colocated sidecar (<name>.sr.md) that the indexer, hubs, cards, and MCP already understand.')
@@ -951,7 +951,7 @@ class SemanticReadingSettingTab extends PluginSettingTab {
         t.onChange(async v => { this.plugin.settings.pdfAnnotationsEnabled = v; await this.plugin.saveSettings(); });
       });
 
-    containerEl.createEl('h2', { text: 'Daily note injection' });
+    new Setting(containerEl).setName('Daily note injection').setHeading();
     new Setting(containerEl)
       .setName('Inject summary on today\'s daily note')
       .setDesc('When you open a note named YYYY-MM-DD (today), prepend "📚 N cards due · M open questions · K concepts". Idempotent — uses an HTML-comment marker.')
@@ -960,7 +960,7 @@ class SemanticReadingSettingTab extends PluginSettingTab {
         t.onChange(async v => { this.plugin.settings.dailyNoteInjection = v; await this.plugin.saveSettings(); });
       });
 
-    containerEl.createEl('h2', { text: 'Readwise / Kindle import' });
+    new Setting(containerEl).setName('Readwise / Kindle import').setHeading();
     containerEl.createEl('p', {
       text: 'Pull highlights into the vault as one note per book, ready to tag with semantic sigils. Existing destination notes are never overwritten — the importer skips books whose target file already exists.',
       cls: 'setting-item-description',
@@ -997,7 +997,7 @@ class SemanticReadingSettingTab extends PluginSettingTab {
         });
       });
 
-    containerEl.createEl('h2', { text: 'Tasks app push' });
+    new Setting(containerEl).setName('Tasks app push').setHeading();
     containerEl.createEl('p', {
       text: 'Push every A-tagged span to an external task manager. Re-runs are idempotent — each task carries an `srid_<blockId>` label, so already-synced actions are skipped. Domain-aware routing: a note\'s `semantic_domain` maps to a project/list via the table below.',
       cls: 'setting-item-description',
@@ -1048,10 +1048,8 @@ class SemanticReadingSettingTab extends PluginSettingTab {
         text: 'Domain → project/list mapping. One per line as `domain = project_or_list_id`. Domains come from the `semantic_domain:` frontmatter field.',
         cls: 'setting-item-description',
       });
-      const mapEl = containerEl.createEl('textarea');
+      const mapEl = containerEl.createEl('textarea', { cls: 'sr-domain-map' });
       mapEl.rows = 5;
-      mapEl.style.width = '100%';
-      mapEl.style.fontFamily = 'var(--font-monospace)';
       mapEl.placeholder = 'programming = 2334455667\nmeeting = 2334455700';
       mapEl.value = Object.entries(this.plugin.settings.tasksPush.projectByDomain)
         .map(([k, v]) => `${k} = ${v}`).join('\n');
@@ -1077,7 +1075,7 @@ class SemanticReadingSettingTab extends PluginSettingTab {
         });
     }
 
-    containerEl.createEl('h2', { text: 'Calendar (.ics) export' });
+    new Setting(containerEl).setName('Calendar (.ics) export').setHeading();
     containerEl.createEl('p', {
       text: 'Run "Export actions to ICS (calendar)" to write a `.ics` file pairing every A-tagged action with a co-located D (date) span in the same paragraph. Subscribe to the file from Calendar.app or any ICS-aware client.',
       cls: 'setting-item-description',
@@ -1090,7 +1088,7 @@ class SemanticReadingSettingTab extends PluginSettingTab {
         t.onChange(async v => { this.plugin.settings.icsPath = v.trim() || 'actions.ics'; await this.plugin.saveSettings(); });
       });
 
-    containerEl.createEl('h2', { text: 'MCP server' });
+    new Setting(containerEl).setName('MCP server').setHeading();
     containerEl.createEl('p', {
       text: 'Expose the vault tag index as MCP tools, resources (concept hubs, open questions, notes), and prompts (tag-suggest, synthesis) so Claude Desktop / Cursor / VS Code (or any MCP client) can query, review, and tag. JSON-RPC 2.0 over HTTP with an SSE channel for change notifications, bound to 127.0.0.1 only. Desktop Obsidian only — no-op on mobile.',
       cls: 'setting-item-description',
@@ -1159,12 +1157,7 @@ class SemanticReadingSettingTab extends PluginSettingTab {
   // rest reset to their previous value with a Notice.
   private renderTagKeyBindings(parent: HTMLElement): void {
     const details = parent.createEl('details', { cls: 'sr-tag-shortcuts-details' });
-    details.style.marginTop = '1.5em';
     const summary = details.createEl('summary');
-    summary.style.cursor = 'pointer';
-    summary.style.fontWeight = '600';
-    summary.style.fontSize = '1.05em';
-    summary.style.padding = '0.4em 0';
     summary.setText('Tag shortcuts');
 
     details.createEl('p', {
@@ -1202,8 +1195,7 @@ class SemanticReadingSettingTab extends PluginSettingTab {
           .setDesc(def.desc || '')
           .addText(t => {
             t.inputEl.maxLength = 1;
-            t.inputEl.style.width = '3em';
-            t.inputEl.style.textAlign = 'center';
+            t.inputEl.addClass('sr-key-input');
             t.setPlaceholder(builtinByTag[sigil] || '');
             t.setValue(current);
             t.onChange(async v => {

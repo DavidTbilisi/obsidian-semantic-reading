@@ -741,3 +741,15 @@
 .theme-dark .sr-pdf-highlight.sr-pdf-highlight-rect {
   background-color: color-mix(in srgb, currentColor 14%, transparent);
 }
+
+/* --- Settings/UI helpers: moved off inline styles for review compliance --- */
+.sr-tagbar.is-hidden { display: none; }
+.sr-domain-map { width: 100%; font-family: var(--font-monospace); }
+.sr-tag-shortcuts-details { margin-top: 1.5em; }
+.sr-tag-shortcuts-details > summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 1.05em;
+  padding: 0.4em 0;
+}
+.sr-key-input { width: 3em; text-align: center; }

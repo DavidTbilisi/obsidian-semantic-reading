@@ -1,8 +1,8 @@
 {
   "id": "semantic-reading",
   "name": "Semantic Reading",
-  "version": "1.4.0",
-  "minAppVersion": "1.4.0",
+  "version": "1.4.1",
+  "minAppVersion": "1.7.2",
   "description": "Mark prose with semantic sigils (Def, R, Q, A, M, …) across 5 reading modes. Renders inline in Live Preview + Reading mode. Side views for cards, concept atlas, and Anki/Markdown export.",
   "author": "David Chincharashvili",
   "authorUrl": "https://github.com/DavidTbilisi",
