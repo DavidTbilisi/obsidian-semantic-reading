@@ -26,7 +26,7 @@ export async function rebuildFrontmatter(
     return out;
   });
   const used = customTagsUsedIn(extracts.map(e => e.tag), customTags);
-  await app.fileManager.processFrontMatter(file, (fm) => {
+  await app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
     if (entries.length) fm.semantic_tags = entries;
     else delete fm.semantic_tags;
     fm.semantic_mode = mode;

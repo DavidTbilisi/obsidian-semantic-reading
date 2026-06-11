@@ -231,23 +231,23 @@ export default class SemanticReadingPlugin extends Plugin {
     });
   }
 
-  async onunload(): Promise<void> {
+  onunload(): void {
     this.tagbar?.destroy();
-    await this.mcp?.stop();
+    void this.mcp?.stop();
   }
 
   async loadSettings(): Promise<void> {
-    const saved = await this.loadData();
+    const saved = ((await this.loadData()) ?? {}) as Partial<SemanticReadingSettings>;
     this.settings = Object.assign({}, DEFAULT_SETTINGS, saved);
-    this.settings.ai = Object.assign({}, DEFAULT_AI_CONFIG, saved?.ai);
-    this.settings.study = saved?.study || emptyStudyData();
-    this.settings.customTags = Array.isArray(saved?.customTags) ? saved.customTags : [];
-    this.settings.domains = Array.isArray(saved?.domains) ? saved.domains : DOMAIN_PRESETS;
-    this.settings.tasksPush = Object.assign({}, DEFAULT_TASKS_PUSH_OPTIONS, saved?.tasksPush);
-    this.settings.readwise = Object.assign({}, DEFAULT_READWISE_OPTIONS, saved?.readwise);
-    this.settings.mcp = Object.assign({}, DEFAULT_MCP_OPTIONS, saved?.mcp);
-    this.settings.tagKeyBindings = (saved?.tagKeyBindings && typeof saved.tagKeyBindings === 'object')
-      ? saved.tagKeyBindings as Record<string, string>
+    this.settings.ai = Object.assign({}, DEFAULT_AI_CONFIG, saved.ai);
+    this.settings.study = saved.study || emptyStudyData();
+    this.settings.customTags = Array.isArray(saved.customTags) ? saved.customTags : [];
+    this.settings.domains = Array.isArray(saved.domains) ? saved.domains : DOMAIN_PRESETS;
+    this.settings.tasksPush = Object.assign({}, DEFAULT_TASKS_PUSH_OPTIONS, saved.tasksPush);
+    this.settings.readwise = Object.assign({}, DEFAULT_READWISE_OPTIONS, saved.readwise);
+    this.settings.mcp = Object.assign({}, DEFAULT_MCP_OPTIONS, saved.mcp);
+    this.settings.tagKeyBindings = (saved.tagKeyBindings && typeof saved.tagKeyBindings === 'object')
+      ? saved.tagKeyBindings
       : {};
     this.refreshCustomTags();
   }
@@ -362,7 +362,6 @@ export default class SemanticReadingPlugin extends Plugin {
     this.addCommand({
       id: 'ai-suggest-tags',
       name: 'AI: suggest tags for this paragraph',
-      hotkeys: [{ modifiers: ['Mod', 'Shift'], key: 't' }],
       checkCallback: (checking) => {
         const view = this.app.workspace.getActiveViewOfType(MarkdownView);
         if (!view || !view.editor) return false;
