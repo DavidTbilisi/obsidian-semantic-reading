@@ -23,10 +23,36 @@ function applyOptions(el: HTMLElement, o?: CreateOptions): void {
   if (o.type && el instanceof HTMLInputElement) el.type = o.type;
 }
 
+// Obsidian injects `activeDocument` / `activeWindow` globals that resolve to the
+// currently-focused window (so plugins work inside pop-out windows). happy-dom
+// has no such globals — mirror them onto the test document/window so production
+// code that reads them doesn't throw under test.
+const globalScope = globalThis as unknown as { activeDocument?: Document; activeWindow?: Window };
+if (typeof globalScope.activeDocument === 'undefined') globalScope.activeDocument = document;
+if (typeof globalScope.activeWindow === 'undefined') globalScope.activeWindow = window;
+
 const proto = HTMLElement.prototype as any;
 
 proto.empty = function (this: HTMLElement): void {
   while (this.firstChild) this.removeChild(this.firstChild);
+};
+
+// Obsidian's class-list helpers (variadic add/remove, single-class hasClass).
+proto.addClass = function (this: HTMLElement, ...classes: string[]): void {
+  classes.forEach(c => this.classList.add(c));
+};
+
+proto.removeClass = function (this: HTMLElement, ...classes: string[]): void {
+  classes.forEach(c => this.classList.remove(c));
+};
+
+proto.toggleClass = function (this: HTMLElement, classes: string | string[], value: boolean): void {
+  const list = Array.isArray(classes) ? classes : [classes];
+  list.forEach(c => this.classList.toggle(c, value));
+};
+
+proto.hasClass = function (this: HTMLElement, cls: string): boolean {
+  return this.classList.contains(cls);
 };
 
 proto.setText = function (this: HTMLElement, text: string): void {

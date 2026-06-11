@@ -34,7 +34,7 @@ export class AtlasView extends ItemView {
   async onOpen(): Promise<void> {
     this.registerEvent(this.app.workspace.on('active-leaf-change', () => this.scheduleRefresh()));
     this.registerEvent(this.app.workspace.on('editor-change', () => this.scheduleRefresh(250)));
-    this.refresh();
+    void this.refresh();
   }
 
   async onClose(): Promise<void> {
@@ -45,7 +45,7 @@ export class AtlasView extends ItemView {
     if (this.refreshHandle !== null) window.clearTimeout(this.refreshHandle);
     this.refreshHandle = window.setTimeout(() => {
       this.refreshHandle = null;
-      this.refresh();
+      void this.refresh();
     }, delay);
   }
 
@@ -134,18 +134,18 @@ export class AtlasView extends ItemView {
     const byKey = new Map(nodes.map(n => [n.key, n]));
     const maxW = edges.reduce((m, e) => Math.max(m, e.weight), 1);
 
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const svg = activeDocument.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     svg.setAttribute('width', String(W));
     svg.setAttribute('height', String(H));
     svg.classList.add('sr-atlas-svg');
 
-    const edgeGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    const edgeGroup = activeDocument.createElementNS('http://www.w3.org/2000/svg', 'g');
     edges.forEach(e => {
       const a = byKey.get(e.a);
       const b = byKey.get(e.b);
       if (!a || !b) return;
-      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      const line = activeDocument.createElementNS('http://www.w3.org/2000/svg', 'line');
       line.setAttribute('x1', a.x.toFixed(1));
       line.setAttribute('y1', a.y.toFixed(1));
       line.setAttribute('x2', b.x.toFixed(1));
@@ -153,31 +153,31 @@ export class AtlasView extends ItemView {
       line.setAttribute('stroke-width', (1 + (e.weight / maxW) * 2.5).toFixed(2));
       line.classList.add('sr-atlas-edge');
       if (e.weight > 1) line.classList.add('thick');
-      const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+      const title = activeDocument.createElementNS('http://www.w3.org/2000/svg', 'title');
       title.textContent = `shares ${e.weight} paragraph(s)`;
       line.appendChild(title);
       edgeGroup.appendChild(line);
     });
     svg.appendChild(edgeGroup);
 
-    const nodeGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    const nodeGroup = activeDocument.createElementNS('http://www.w3.org/2000/svg', 'g');
     nodes.forEach(n => {
       const label = truncate(n.label, 22);
       const w = Math.max(70, label.length * 7 + 16);
       const h = 28;
-      const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      const g = activeDocument.createElementNS('http://www.w3.org/2000/svg', 'g');
       g.setAttribute('transform', `translate(${(n.x - w / 2).toFixed(1)},${(n.y - h / 2).toFixed(1)})`);
       g.classList.add('sr-atlas-node');
-      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      const rect = activeDocument.createElementNS('http://www.w3.org/2000/svg', 'rect');
       rect.setAttribute('width', String(w));
       rect.setAttribute('height', String(h));
       g.appendChild(rect);
-      const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      const text = activeDocument.createElementNS('http://www.w3.org/2000/svg', 'text');
       text.setAttribute('x', String(w / 2));
       text.setAttribute('y', String(h / 2));
       text.textContent = label;
       g.appendChild(text);
-      const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+      const title = activeDocument.createElementNS('http://www.w3.org/2000/svg', 'title');
       title.textContent = `${n.label} — appears in ${n.paras.size} paragraph(s)`;
       g.appendChild(title);
       nodeGroup.appendChild(g);

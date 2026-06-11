@@ -1,4 +1,4 @@
-import { App, SuggestModal } from 'obsidian';
+import { App, SuggestModal, TFile } from 'obsidian';
 import { VaultIndexer, Mention } from '../graph/vault-index';
 import { TAGS, cssTag } from '../constants';
 
@@ -65,11 +65,10 @@ export class SearchByTagModal extends SuggestModal<SearchItem> {
     });
   }
 
-  async onChooseSuggestion(item: SearchItem): Promise<void> {
+  onChooseSuggestion(item: SearchItem): void {
     const file = this.app.vault.getAbstractFileByPath(item.mention.notePath);
-    if (!file) return;
-    const leaf = this.app.workspace.getLeaf(false);
-    await leaf.openFile(file as any, {
+    if (!(file instanceof TFile)) return;
+    void this.app.workspace.getLeaf(false).openFile(file, {
       eState: { line: 0, scroll: 0 },
     });
   }

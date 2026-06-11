@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, Notice } from 'obsidian';
+import { ItemView, WorkspaceLeaf, Notice, TFile } from 'obsidian';
 import { VaultIndexer } from '../graph/vault-index';
 
 export const VAULT_ATLAS_VIEW_TYPE = 'semantic-reading-vault-atlas';
@@ -85,7 +85,7 @@ export class VaultAtlasView extends ItemView {
     const H = Math.max(this.containerEl.clientHeight - 80, 480);
     fitToBox(nodes, W, H, 60);
 
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const svg = activeDocument.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     svg.setAttribute('width', String(W));
     svg.setAttribute('height', String(H));
@@ -93,13 +93,13 @@ export class VaultAtlasView extends ItemView {
 
     const maxEdgeWeight = edges.reduce((m, e) => Math.max(m, e.weight), 1);
 
-    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    const g = activeDocument.createElementNS('http://www.w3.org/2000/svg', 'g');
     svg.appendChild(g);
 
     for (const e of edges) {
       const a = nodeMap.get(e.a)!;
       const b = nodeMap.get(e.b)!;
-      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      const line = activeDocument.createElementNS('http://www.w3.org/2000/svg', 'line');
       line.setAttribute('x1', a.x.toFixed(1));
       line.setAttribute('y1', a.y.toFixed(1));
       line.setAttribute('x2', b.x.toFixed(1));
@@ -111,11 +111,10 @@ export class VaultAtlasView extends ItemView {
     }
 
     for (const n of nodes) {
-      const node = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      const node = activeDocument.createElementNS('http://www.w3.org/2000/svg', 'g');
       node.setAttribute('transform', `translate(${n.x.toFixed(1)},${n.y.toFixed(1)})`);
       node.classList.add('sr-atlas-node');
-      const r = Math.min(28, 12 + Math.sqrt(n.weight) * 4);
-      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      const rect = activeDocument.createElementNS('http://www.w3.org/2000/svg', 'rect');
       const label = truncate(n.label, 22);
       const w = Math.max(70, label.length * 7 + 16);
       const h = 28;
@@ -124,19 +123,18 @@ export class VaultAtlasView extends ItemView {
       rect.setAttribute('width', String(w));
       rect.setAttribute('height', String(h));
       node.appendChild(rect);
-      const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      const text = activeDocument.createElementNS('http://www.w3.org/2000/svg', 'text');
       text.setAttribute('x', '0');
       text.setAttribute('y', '0');
       text.textContent = label;
       node.appendChild(text);
-      const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+      const title = activeDocument.createElementNS('http://www.w3.org/2000/svg', 'title');
       title.textContent = `${n.label} — ${n.weight} mention${n.weight === 1 ? '' : 's'}`;
       node.appendChild(title);
       node.addEventListener('click', () => {
         const file = this.app.vault.getAbstractFileByPath(`Concepts/${n.key}.md`);
-        if (file) this.app.workspace.getLeaf(false).openFile(file as any);
+        if (file instanceof TFile) void this.app.workspace.getLeaf(false).openFile(file);
         else new Notice('Hub page not generated yet — run "Rebuild concept hubs".');
-        void r; // r is computed but not used after we switched to rect; silence lint.
       });
       g.appendChild(node);
     }

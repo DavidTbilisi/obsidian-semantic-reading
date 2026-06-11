@@ -26,7 +26,7 @@ export class CardsView extends ItemView {
     this.registerEvent(this.app.metadataCache.on('changed', (f) => {
       if (this.currentFile && f.path === this.currentFile.path) this.scheduleRefresh();
     }));
-    this.refresh();
+    void this.refresh();
   }
 
   async onClose(): Promise<void> {
@@ -37,7 +37,7 @@ export class CardsView extends ItemView {
     if (this.refreshHandle !== null) window.clearTimeout(this.refreshHandle);
     this.refreshHandle = window.setTimeout(() => {
       this.refreshHandle = null;
-      this.refresh();
+      void this.refresh();
     }, delay);
   }
 

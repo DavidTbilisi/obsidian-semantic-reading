@@ -22,6 +22,9 @@ export type TagbarPosition =
   | 'invisible';
 
 export class Tagbar {
+  // Cache the document we attach to so add/removeEventListener target the same
+  // one even if focus later moves to a pop-out window (activeDocument would shift).
+  private readonly doc: Document = activeDocument;
   private el: HTMLDivElement;
   private currentEditor: Editor | null = null;
   private currentView: MarkdownView | null = null;
@@ -41,17 +44,17 @@ export class Tagbar {
   constructor(mode: number, getPosition: () => TagbarPosition = () => 'auto') {
     this.mode = mode;
     this.getPosition = getPosition;
-    this.el = document.createElement('div');
+    this.el = this.doc.createElement('div');
     this.el.className = 'sr-tagbar';
     this.el.addClass('is-hidden');
-    document.body.appendChild(this.el);
+    this.doc.body.appendChild(this.el);
 
     this.keyHandler = (e: KeyboardEvent) => this.onKey(e);
     this.outsideClickHandler = (e: MouseEvent) => {
       if (this.active && !this.el.contains(e.target as Node)) this.hide();
     };
-    document.addEventListener('keydown', this.keyHandler, true);
-    document.addEventListener('mousedown', this.outsideClickHandler, true);
+    this.doc.addEventListener('keydown', this.keyHandler, true);
+    this.doc.addEventListener('mousedown', this.outsideClickHandler, true);
   }
 
   setMode(mode: number): void {
@@ -146,8 +149,8 @@ export class Tagbar {
   }
 
   destroy(): void {
-    document.removeEventListener('keydown', this.keyHandler, true);
-    document.removeEventListener('mousedown', this.outsideClickHandler, true);
+    this.doc.removeEventListener('keydown', this.keyHandler, true);
+    this.doc.removeEventListener('mousedown', this.outsideClickHandler, true);
     this.el.remove();
   }
 

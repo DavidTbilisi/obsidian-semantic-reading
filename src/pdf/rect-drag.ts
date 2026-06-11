@@ -36,7 +36,7 @@ const MIN_DRAG_PX = 5;
 export function installPdfRectDragTracking(): void {
   if (installed) return;
   installed = true;
-  document.addEventListener('mousedown', (e) => {
+  activeDocument.addEventListener('mousedown', (e) => {
     const target = e.target as HTMLElement | null;
     const pageEl = target?.closest('.page[data-page-number]') as HTMLElement | null;
     if (!pageEl) {
@@ -68,7 +68,7 @@ export function readPdfRectDrag(mouseup: MouseEvent): PdfRectAnchor | null {
 
   // The mouseup target must still be inside (or near) the same page. Cheap
   // sanity check: ensure the start pageEl is still in the document.
-  if (!document.contains(start.pageEl)) return null;
+  if (!activeDocument.contains(start.pageEl)) return null;
 
   const pageRect = start.pageEl.getBoundingClientRect();
   if (!pageRect.width || !pageRect.height) return null;
