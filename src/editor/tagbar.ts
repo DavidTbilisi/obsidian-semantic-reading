@@ -43,7 +43,7 @@ export class Tagbar {
     this.getPosition = getPosition;
     this.el = document.createElement('div');
     this.el.className = 'sr-tagbar';
-    this.el.style.display = 'none';
+    this.el.addClass('is-hidden');
     document.body.appendChild(this.el);
 
     this.keyHandler = (e: KeyboardEvent) => this.onKey(e);
@@ -60,7 +60,7 @@ export class Tagbar {
   }
 
   isVisible(): boolean {
-    return this.el.style.display !== 'none';
+    return !this.el.hasClass('is-hidden');
   }
 
   showFor(view: MarkdownView, x: number, y: number): void {
@@ -77,10 +77,10 @@ export class Tagbar {
     this.currentSelection = { from, to };
     this.active = true;
 
-    if (this.getPosition() === 'invisible') { this.el.style.display = 'none'; return; }
+    if (this.getPosition() === 'invisible') { this.el.addClass('is-hidden'); return; }
     this.render();
     this.positionEl(view.contentEl, x, y);
-    this.el.style.display = '';
+    this.el.removeClass('is-hidden');
   }
 
   // Open the tagbar against a non-markdown surface. The caller owns the commit:
@@ -97,10 +97,10 @@ export class Tagbar {
     this.pendingCommit = commit;
     this.active = true;
 
-    if (this.getPosition() === 'invisible') { this.el.style.display = 'none'; return; }
+    if (this.getPosition() === 'invisible') { this.el.addClass('is-hidden'); return; }
     this.render();
     this.positionEl(paneEl, x, y);
-    this.el.style.display = '';
+    this.el.removeClass('is-hidden');
   }
 
   // Place the tagbar according to the user's chosen position. In 'auto' mode we
@@ -137,7 +137,7 @@ export class Tagbar {
   }
 
   hide(): void {
-    this.el.style.display = 'none';
+    this.el.addClass('is-hidden');
     this.active = false;
     this.currentEditor = null;
     this.currentView = null;
