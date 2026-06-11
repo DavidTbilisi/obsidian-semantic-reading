@@ -52,7 +52,7 @@ import { BUILTIN_KEY_TO_TAG, BUILTIN_TAGS, FAMILIES, MODES, TAGS, applyKeyBindin
 import {
   CustomTagDef,
   applyCustomTags,
-  injectCustomTagCSS,
+  applyCustomTagColors,
   mergeImported,
   parseFromFrontmatter,
   validateCustomTag,
@@ -178,6 +178,13 @@ export default class SemanticReadingPlugin extends Plugin {
       }
     });
 
+    // Re-resolve custom-tag colors when the theme (or a CSS snippet) changes, so
+    // light/dark values track the active theme without re-rendering notes.
+    this.registerEvent(this.app.workspace.on('css-change', () => {
+      const allDomainTags = (this.settings.domains || []).flatMap(d => d.tags);
+      applyCustomTagColors([...this.settings.customTags, ...allDomainTags]);
+    }));
+
     // Sync frontmatter + indexer on save (debounced per file).
     this.registerEvent(
       this.app.vault.on('modify', (file) => {
@@ -286,10 +293,10 @@ export default class SemanticReadingPlugin extends Plugin {
     const domain = this.activeDomain();
     applyCustomTags(this.settings.customTags, domain);
     applyKeyBindingOverrides(this.settings.tagKeyBindings || {});
-    // Inject CSS for universal customs + every domain's tags so opening any
-    // note already has its colors available.
+    // Publish color vars for universal customs + every domain's tags so opening
+    // any note already has its colors available.
     const allDomainTags = (this.settings.domains || []).flatMap(d => d.tags);
-    injectCustomTagCSS([...this.settings.customTags, ...allDomainTags]);
+    applyCustomTagColors([...this.settings.customTags, ...allDomainTags]);
   }
 
   domainForPath(notePath: string): string | null {

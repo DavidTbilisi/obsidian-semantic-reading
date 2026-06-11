@@ -107,34 +107,52 @@ function pruneRegistriesForDomain(d: DomainProfile): void {
   }
 }
 
-const STYLE_ID = 'sr-custom-tag-colors';
+// === Custom-tag colors ===
+//
+// Custom-tag colors can't live in styles.css: sigils are user-defined and
+// unbounded, so there's no static `.sr-tg-<sigil>` rule we could ship. Instead
+// of injecting a runtime <style> element (disallowed by Obsidian), we publish
+// each custom tag's resolved color as a CSS custom property `--t-<sigil>` on the
+// document body (theme-aware), and the render sites apply `color: var(--t-<sigil>)`
+// inline via tintCustomTag / customTagColorVar. Because the elements reference a
+// live body variable, a theme switch re-colors them with no re-render. Built-in
+// sigils keep their static `.sr-tg-X { color: var(--t-X) }` rules in styles.css.
 
-// Inject (or replace) a single <style> element containing color variables for
-// every custom tag. Idempotent — call after applyCustomTags() and any time
-// custom colors change.
-export function injectCustomTagCSS(custom: CustomTagDef[]): void {
-  let el = document.getElementById(STYLE_ID) as HTMLStyleElement | null;
-  if (!el) {
-    el = document.createElement('style');
-    el.id = STYLE_ID;
-    document.head.appendChild(el);
-  }
-  const lines: string[] = [];
-  const lightVars: string[] = [];
-  const darkVars: string[] = [];
-  const classes: string[] = [];
+// Sigils that currently have a published `--t-<sigil>` color var on the body.
+let customColorSigils = new Set<string>();
+
+// Publish (or refresh) color variables for every custom tag onto the body, using
+// the dark or light value for the current theme. Idempotent — call after
+// applyCustomTags(), on the workspace `css-change` event, and whenever custom
+// colors change. Variables for tags that have since been removed are cleared.
+export function applyCustomTagColors(custom: CustomTagDef[], doc: Document = activeDocument): void {
+  const dark = doc.body.classList.contains('theme-dark');
+  const next = new Set<string>();
   for (const t of custom || []) {
     if (validateSigil(t.sigil)) continue;
-    const light = t.light || '#6c6c6c';
-    const dark = t.dark || '#bdbdbd';
-    lightVars.push(`  --t-${t.sigil}: ${light};`);
-    darkVars.push(`  --t-${t.sigil}: ${dark};`);
-    classes.push(`.sr-tg-${t.sigil} { color: var(--t-${t.sigil}); }`);
+    const color = (dark ? t.dark : t.light) || (dark ? '#bdbdbd' : '#6c6c6c');
+    doc.body.style.setProperty('--t-' + t.sigil, color);
+    next.add(t.sigil);
   }
-  if (lightVars.length) lines.push('.theme-light {\n' + lightVars.join('\n') + '\n}');
-  if (darkVars.length) lines.push('.theme-dark {\n' + darkVars.join('\n') + '\n}');
-  if (classes.length) lines.push(classes.join('\n'));
-  el.textContent = lines.join('\n\n');
+  for (const sigil of customColorSigils) {
+    if (!next.has(sigil)) doc.body.style.removeProperty('--t-' + sigil);
+  }
+  customColorSigils = next;
+}
+
+// The `var(--t-<sigil>)` reference for a custom tag, or null for a built-in tag
+// (those are colored by static styles.css rules). Used by CodeMirror decorations,
+// which take a style string rather than an element handle.
+export function customTagColorVar(tag: string): string | null {
+  return customColorSigils.has(tag) ? `var(--t-${tag})` : null;
+}
+
+// Apply a custom tag's color to a freshly-created element. No-op for built-in
+// tags. The value is dynamic (a var() reference), so it satisfies the
+// no-static-styles-assignment rule and needs no runtime <style> element.
+export function tintCustomTag(el: HTMLElement, tag: string): void {
+  const v = customTagColorVar(tag);
+  if (v) el.style.setProperty('color', v);
 }
 
 // === Frontmatter portability ===

@@ -3,6 +3,7 @@ import { VaultIndexer } from '../graph/vault-index';
 import { buildCards, Card } from '../study/card-builder';
 import { CardState, Rating, isDue, newCard } from '../study/fsrs';
 import { applyReview } from '../study/grade';
+import { tintCustomTag } from '../custom-tags';
 
 export const REVIEW_VIEW_TYPE = 'semantic-reading-review';
 
@@ -86,7 +87,8 @@ export class ReviewView extends ItemView {
     }
 
     const cardBox = root.createDiv({ cls: 'sr-review-card' });
-    cardBox.createDiv({ cls: 'sr-review-tag sr-tg-' + card.tag, text: card.tag });
+    const tagEl = cardBox.createDiv({ cls: 'sr-review-tag sr-tg-' + card.tag, text: card.tag });
+    tintCustomTag(tagEl, card.tag);
     cardBox.createDiv({ cls: 'sr-review-front', text: card.front });
 
     if (this.showingBack) {

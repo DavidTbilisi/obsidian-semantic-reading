@@ -15,6 +15,7 @@ import { App, Component, WorkspaceLeaf } from 'obsidian';
 import { VaultIndexer } from '../graph/vault-index';
 import { isPdfView } from './pdf-tagbar';
 import { parseRectFromWikilink } from './rect-drag';
+import { tintCustomTag } from '../custom-tags';
 
 interface HighlightEntry {
   page: number;
@@ -194,6 +195,7 @@ function paintPage(pageEl: HTMLElement, entries: HighlightEntry[]): void {
       if (r.width < 1 || r.height < 1) continue;
       const overlay = activeDocument.createElement('div');
       overlay.className = 'sr-pdf-highlight sr-tg-' + cssTag(entry.tag);
+      tintCustomTag(overlay, entry.tag);
       overlay.setAttribute('data-block-id', entry.blockId);
       overlay.style.left = (r.left - pageRect.left) + 'px';
       overlay.style.top = (r.top - pageRect.top) + 'px';
@@ -216,6 +218,7 @@ function paintRectEntry(pageEl: HTMLElement, pageRect: DOMRect, entry: Highlight
   if (width < 1 || height < 1) return;
   const overlay = activeDocument.createElement('div');
   overlay.className = 'sr-pdf-highlight sr-pdf-highlight-rect sr-tg-' + cssTag(entry.tag);
+  tintCustomTag(overlay, entry.tag);
   overlay.setAttribute('data-block-id', entry.blockId);
   overlay.style.left = left + 'px';
   overlay.style.top = top + 'px';

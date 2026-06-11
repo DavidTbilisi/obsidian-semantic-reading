@@ -9,6 +9,7 @@ import {
 import { RangeSetBuilder } from '@codemirror/state';
 import { MARK_REGEX } from '../syntax';
 import { cssTag } from '../constants';
+import { customTagColorVar } from '../custom-tags';
 
 // A small <sup> widget appended after the tagged text, e.g. "Def".
 class TagLabelWidget extends WidgetType {
@@ -51,23 +52,32 @@ function buildDecorations(view: EditorView): DecorationSet {
       // Show full source if the cursor / selection touches this match.
       const cursorTouches = cursors.some(r => !(r.to < matchStart || r.from > matchEnd));
 
+      // Custom tags carry their color inline (built-ins are colored by styles.css).
+      const colorVar = customTagColorVar(tag);
+
       if (cursorTouches) {
         // Just mark the body text with the tag color so it's still distinguishable.
         builder.add(
           textStart,
           textEnd,
-          Decoration.mark({ class: 'sr-tspan sr-tg-' + cssTag(tag) })
+          Decoration.mark({
+            class: 'sr-tspan sr-tg-' + cssTag(tag),
+            ...(colorVar ? { attributes: { style: 'color: ' + colorVar } } : {}),
+          })
         );
       } else {
         // Hide the `{{Tag|` prefix.
         builder.add(matchStart, textStart, Decoration.replace({}));
         // Mark the text body.
+        const attrs: Record<string, string> = {};
+        if (note) attrs.title = note;
+        if (colorVar) attrs.style = 'color: ' + colorVar;
         builder.add(
           textStart,
           textEnd,
           Decoration.mark({
             class: 'sr-tspan sr-tg-' + cssTag(tag) + (note ? ' sr-has-note' : ''),
-            attributes: note ? { title: note } : undefined,
+            attributes: Object.keys(attrs).length ? attrs : undefined,
           })
         );
         // Hide the trailing `}}` (and optional `|note=...`).

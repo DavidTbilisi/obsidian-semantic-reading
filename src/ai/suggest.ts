@@ -11,6 +11,7 @@ import {
   stripOffsets,
 } from '../syntax';
 import { TAGS, MODES, cssTag } from '../constants';
+import { tintCustomTag } from '../custom-tags';
 
 export class SuggestModal extends Modal {
   private ai: AIClient;
@@ -95,7 +96,8 @@ export class SuggestModal extends Modal {
 
     this.suggestions.forEach((s, i) => {
       const row = body.createDiv({ cls: 'sr-suggest-row' });
-      row.createSpan({ cls: 'sr-chip sr-tg-' + cssTag(s.tag), text: s.tag });
+      const chip = row.createSpan({ cls: 'sr-chip sr-tg-' + cssTag(s.tag), text: s.tag });
+      tintCustomTag(chip, s.tag);
       const text = row.createSpan({ cls: 'sr-suggest-span' });
       text.setText('"' + s.span + '"');
       if (s.rationale) {
